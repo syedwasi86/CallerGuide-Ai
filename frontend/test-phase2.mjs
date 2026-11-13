@@ -126,3 +126,4 @@ assert.strictEqual(stageResults[1].selectedOutcome, "right_person_reached");
 assert.strictEqual(stageResults[1].prospectWords, "Yes, speaking.");
 
 console.log("All Phase 2 logic and configuration checks PASSED successfully!");
+

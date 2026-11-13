@@ -63,3 +63,4 @@ export interface CallSession {
   nextStepNotes?: string;
   stageResults: Record<StageNumber, StageData>;
 }
+
