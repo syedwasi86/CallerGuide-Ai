@@ -146,3 +146,4 @@ In this foundational phase:
 * **LLM Integration:** Not connected yet. Response suggestion endpoints will be implemented in Phase 5.
 * **Active Call & History:** The UI contains placeholders and structural layouts; live calling and state persistence will be wired in Phases 2 and 3.
 * **Hosting (Render & Vercel):** Deployment will be executed in Phase 6.
+

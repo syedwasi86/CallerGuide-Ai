@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node test-phase2.mjs"
   },
   "dependencies": {
     "@next/swc-wasm-nodejs": "^16.4.6",

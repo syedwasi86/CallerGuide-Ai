@@ -33,3 +33,4 @@ def read_root():
 def health_check():
     """Health check endpoint to verify backend service readiness."""
     return {"status": "ok"}
+

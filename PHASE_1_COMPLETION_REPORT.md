@@ -238,3 +238,4 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
    * Original `doc/PRODUCT_SPEC.md` was preserved in place without modification.
 3. **Ready for Phase 2:**
    * The project foundation is verified, reproducible, and ready to implement the interactive 8-stage Active Call workflow in Phase 2 upon your approval.
+
