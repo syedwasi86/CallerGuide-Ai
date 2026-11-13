@@ -19,7 +19,7 @@ export default function Home() {
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 font-bold text-white shadow-sm">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 font-bold text-white shadow-xs">
               CG
             </div>
             <div>
@@ -27,11 +27,17 @@ export default function Home() {
                 CallGuide AI
               </span>
               <span className="ml-2 inline-flex items-center rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 ring-1 ring-inset ring-indigo-700/10">
-                Phase 2 Active
+                Phase 3
               </span>
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <Link
+              href="/calls"
+              className="rounded-lg border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition"
+            >
+              Call History Dashboard
+            </Link>
             <Link
               href="/calls/demo-call-1"
               className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs transition hover:bg-indigo-700"
@@ -92,7 +98,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Call History Placeholder Area */}
+        {/* Call History & Sessions Section */}
         <section className="mt-8 flex-1">
           <div className="flex items-center justify-between">
             <div>
@@ -100,47 +106,61 @@ export default function Home() {
                 Call History & Sessions
               </h2>
               <p className="text-sm text-slate-500">
-                Track previous call runs, furthest stages reached, and canonical outcomes.
+                Track previous call runs, furthest stages reached, and canonical outcomes stored in local browser storage.
               </p>
             </div>
-            <Link
-              href="/calls/demo-call-1"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-xs transition hover:bg-indigo-700"
-            >
-              + Start Demo Call
-            </Link>
-          </div>
-
-          <div className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-indigo-50 text-indigo-600">
-              <svg
-                className="h-6 w-6"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={1.5}
+            <div className="flex items-center gap-2">
+              <Link
+                href="/calls"
+                className="rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-            </div>
-            <h3 className="mt-3 text-base font-semibold text-slate-900">
-              Active Call Workspace Ready for Testing
-            </h3>
-            <p className="mx-auto mt-2 max-w-md text-sm text-slate-500">
-              Phase 2 provides the complete 8-stage interactive Active Call surface
-              with local in-memory state preservation and End Call workflow.
-            </p>
-            <div className="mt-6 flex items-center justify-center gap-3">
+                View Call History
+              </Link>
               <Link
                 href="/calls/demo-call-1"
-                className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-indigo-700"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-xs transition hover:bg-indigo-700"
               >
-                Open Active Call Simulation &rarr;
+                + Start Demo Call
               </Link>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-slate-200/80 bg-white p-8 shadow-xs">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
+              <div className="flex items-center gap-4">
+                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600">
+                  <svg
+                    className="h-7 w-7"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={1.5}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"
+                    />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Call History Dashboard & Analytics
+                  </h3>
+                  <p className="mt-1 text-xs text-slate-500 leading-relaxed max-w-xl">
+                    View completed calls, filter by prospect name or canonical outcome, review stage-by-stage audits, and inspect real-time duration and milestone metrics.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 shrink-0">
+                <Link
+                  href="/calls"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2.5 text-xs font-semibold text-white shadow-xs hover:bg-indigo-700 transition"
+                >
+                  Open Call History &rarr;
+                </Link>
+              </div>
             </div>
           </div>
         </section>
