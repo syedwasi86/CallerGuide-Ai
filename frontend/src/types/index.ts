@@ -26,7 +26,9 @@ export interface OutcomeOption {
 export interface ProspectExample {
   quote: string;
   context?: string;
-  isDraft: boolean;
+  transcriptId?: string;
+  explanation?: string;
+  isDraft?: boolean;
 }
 
 export interface StageConfig {

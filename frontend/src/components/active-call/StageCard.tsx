@@ -14,6 +14,8 @@ interface StageCardProps {
   onNotesChange: (notes: string) => void;
   onExtraDataChange?: (key: string, value: string) => void;
   isCallCompleted: boolean;
+  prospectName?: string;
+  companyName?: string;
 }
 
 export function StageCard({
@@ -23,6 +25,8 @@ export function StageCard({
   onNotesChange,
   onExtraDataChange,
   isCallCompleted,
+  prospectName,
+  companyName,
 }: StageCardProps) {
   return (
     <div className="space-y-5">
@@ -89,11 +93,15 @@ export function StageCard({
         disabled={isCallCompleted}
       />
 
-      {/* AI Response Assistant Placeholder */}
+      {/* AI Response Assistant */}
       <AiAssistant
-        isStage6={stage.stageNumber === 6}
-        prospectWords={stageData.prospectWords}
+        stageNumber={stage.stageNumber}
+        stageName={stage.title}
+        stagePurpose={stage.purpose}
         selectedOutcome={stageData.selectedOutcome}
+        prospectWords={stageData.prospectWords}
+        prospectName={prospectName}
+        companyName={companyName}
       />
     </div>
   );

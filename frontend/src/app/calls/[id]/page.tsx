@@ -616,6 +616,8 @@ function ActiveCallContent() {
               onNotesChange={handleNotesChange}
               onExtraDataChange={handleExtraDataChange}
               isCallCompleted={isCompleted}
+              prospectName={prospectName}
+              companyName={companyName}
             />
 
             {/* Bottom Floating Navigation Bar */}

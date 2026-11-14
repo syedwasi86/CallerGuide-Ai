@@ -285,3 +285,95 @@ export async function getPreviousProspects(search?: string): Promise<ProspectSum
   const qs = query.toString() ? `?${query.toString()}` : "";
   return apiFetch<ProspectSummary[]>(`/api/calls/prospects${qs}`);
 }
+
+export interface AiSuggestionPayload {
+  callId?: string;
+  stageNumber: number;
+  stageName?: string;
+  stagePurpose?: string;
+  selectedOutcome?: string | null;
+  prospectWords?: string;
+  prospectName?: string;
+  companyName?: string;
+}
+
+export interface AiSuggestionResult {
+  suggestion: string;
+  stage_number: number;
+  alternative?: string | null;
+  rationale?: string | null;
+  is_fallback: boolean;
+  provider: string;
+}
+
+function getLocalClientFallbackSuggestion(payload: AiSuggestionPayload): AiSuggestionResult {
+  const words = (payload.prospectWords || "").toLowerCase().trim();
+  const prospect = payload.prospectName || "there";
+  const company = payload.companyName || "your company";
+
+  // Guardrail for do-not-call
+  if (
+    payload.selectedOutcome === "do_not_call" ||
+    words.includes("don't call") ||
+    words.includes("do not call") ||
+    words.includes("stop calling") ||
+    words.includes("punha naka pathvu")
+  ) {
+    return {
+      suggestion:
+        "I completely understand and respect your decision. I will update our records immediately so you are not contacted again. Thank you for your time, and have a good day.",
+      stage_number: payload.stageNumber,
+      alternative:
+        "Understood. We will remove this number from our contact list right away. Thank you, and take care.",
+      rationale:
+        "Prospect requested no contact. Ethical cold-calling principles strictly prohibit continued selling or objection handling.",
+      is_fallback: false,
+      provider: "guardrail",
+    };
+  }
+
+  if (payload.stageNumber === 6) {
+    return {
+      suggestion:
+        "That makes complete sense—most established firms have strong internal teams. We don't replace internal capabilities; we provide an external benchmark on market and operational growth. Would you be open to reviewing a short 2-page brief?",
+      stage_number: 6,
+      alternative:
+        "Completely understand. If timing isn't right today, may I share a one-page summary on WhatsApp that you can review whenever convenient?",
+      rationale:
+        "Acknowledges internal capability without competing and proposes low-friction review.",
+      is_fallback: true,
+      provider: "local_offline",
+    };
+  }
+
+  return {
+    suggestion: `Thank you for sharing that, ${prospect}. As you scale operations at ${company}, what is the main priority leadership is focused on this quarter?`,
+    stage_number: payload.stageNumber,
+    alternative: `Could you tell me a little more about how the team at ${company} is currently managing that?`,
+    rationale: "Open-ended operational exploration grounded in cold-call transcript patterns.",
+    is_fallback: true,
+    provider: "local_offline",
+  };
+}
+
+export async function getAiSuggestion(payload: AiSuggestionPayload): Promise<AiSuggestionResult> {
+  const body = {
+    call_id: payload.callId || null,
+    stage_number: payload.stageNumber,
+    stage_name: payload.stageName || "",
+    stage_purpose: payload.stagePurpose || "",
+    selected_outcome: payload.selectedOutcome || null,
+    prospect_words: payload.prospectWords || "",
+    prospect_name: payload.prospectName || "",
+    company_name: payload.companyName || "",
+  };
+
+  try {
+    return await apiFetch<AiSuggestionResult>("/api/calls/suggestions", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  } catch {
+    return getLocalClientFallbackSuggestion(payload);
+  }
+}

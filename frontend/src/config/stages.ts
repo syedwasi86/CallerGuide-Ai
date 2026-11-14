@@ -4,9 +4,9 @@ import { FinalOutcome, StageConfig } from "@/types";
  * 8-Stage Cold-Call Methodology Configuration
  * Source of truth: doc/PRODUCT_SPEC.md Sections 5 & 7
  *
- * NOTE ON PROSPECT EXAMPLES:
- * These examples are initial draft proposals from the specification.
- * The 100-transcript archive dataset validation is pending.
+ * PROSPECT EXAMPLES:
+ * Grounded in empirical analysis of the 100 cold-call transcripts dataset
+ * (T001 through T100, Meridian Growth Partners).
  */
 export const STAGES_CONFIG: Record<number, StageConfig> = {
   1: {
@@ -21,9 +21,24 @@ export const STAGES_CONFIG: Record<number, StageConfig> = {
       "Keep the opening brief, professional, and natural.",
     ],
     prospectExamples: [
-      { quote: "Who is calling?", isDraft: true },
-      { quote: "What is this regarding?", isDraft: true },
-      { quote: "I'm in a meeting. Can you call later?", isDraft: true },
+      {
+        quote: "Yes, tell me.",
+        transcriptId: "T003",
+        explanation: "Terse direct acknowledgement when reached on personal line.",
+        isDraft: false,
+      },
+      {
+        quote: "Yeah. Rathi.",
+        transcriptId: "T009",
+        explanation: "Direct confirmation of surname / identity without elaboration.",
+        isDraft: false,
+      },
+      {
+        quote: "Yeah, who is this?",
+        transcriptId: "T035",
+        explanation: "Immediate request for caller identification before committing to talk.",
+        isDraft: false,
+      },
     ],
     outcomeOptions: [
       { value: "right_person_reached", label: "Reached the right person" },
@@ -43,9 +58,24 @@ export const STAGES_CONFIG: Record<number, StageConfig> = {
       "Explain the immediate relevance of the call without over-pitching.",
     ],
     prospectExamples: [
-      { quote: "What exactly does your company do?", isDraft: true },
-      { quote: "Where did you get my number?", isDraft: true },
-      { quote: "Is this a sales call?", isDraft: true },
+      {
+        quote: "I am sorry. What is this regarding?",
+        transcriptId: "T012",
+        explanation: "Direct request to clarify call intention after initial introduction.",
+        isDraft: false,
+      },
+      {
+        quote: "Where did you get my contact from?",
+        transcriptId: "T063",
+        explanation: "Inquiring about phone number sourcing and contact origin.",
+        isDraft: false,
+      },
+      {
+        quote: "What do you guys do?",
+        transcriptId: "T084",
+        explanation: "Inquiring about core capabilities and business model.",
+        isDraft: false,
+      },
     ],
     outcomeOptions: [
       { value: "asked_company_purpose", label: "Asked what the company does" },
@@ -66,9 +96,24 @@ export const STAGES_CONFIG: Record<number, StageConfig> = {
       "Never treat silence or an ambiguous grunt as permission.",
     ],
     prospectExamples: [
-      { quote: "Yes, go ahead.", isDraft: true },
-      { quote: "Call me after two.", isDraft: true },
-      { quote: "Send it on WhatsApp first.", isDraft: true },
+      {
+        quote: "Ah, yes. Go ahead.",
+        transcriptId: "T001",
+        explanation: "Clear affirmative permission to proceed with brief overview.",
+        isDraft: false,
+      },
+      {
+        quote: "Haan, boliye.",
+        transcriptId: "T003",
+        explanation: "Natural Hindi/Hinglish affirmative permission to speak.",
+        isDraft: false,
+      },
+      {
+        quote: "Actually, right now I'm in a meeting with a customer. So can I call you after?",
+        transcriptId: "T033",
+        explanation: "Legitimate customer meeting conflict requesting a callback window.",
+        isDraft: false,
+      },
     ],
     outcomeOptions: [
       { value: "permission_granted", label: "Permission granted" },
@@ -89,9 +134,24 @@ export const STAGES_CONFIG: Record<number, StageConfig> = {
       "Avoid turning the conversation into a rigid questionnaire.",
     ],
     prospectExamples: [
-      { quote: "We manufacture industrial equipment.", isDraft: true },
-      { quote: "I handle operations, not business development.", isDraft: true },
-      { quote: "Tell me about your company first.", isDraft: true },
+      {
+        quote: "We do only manufacturing. We supply to Tier-1 OEMs.",
+        transcriptId: "T008",
+        explanation: "Defining operating scope as an upstream contract manufacturer.",
+        isDraft: false,
+      },
+      {
+        quote: "I handle operations, not corporate business development.",
+        transcriptId: "T044",
+        explanation: "Clarifying functional division boundaries versus corporate sales.",
+        isDraft: false,
+      },
+      {
+        quote: "I'm no longer in Celera, by the way. Just wanted to let you know first.",
+        transcriptId: "T059",
+        explanation: "Clarifying that prospect moved company or changed responsibilities.",
+        isDraft: false,
+      },
     ],
     outcomeOptions: [
       { value: "explained_business", label: "Explained their business" },
@@ -112,9 +172,24 @@ export const STAGES_CONFIG: Record<number, StageConfig> = {
       "Do not force or fabricate a need if the prospect has none.",
     ],
     prospectExamples: [
-      { quote: "We are looking to enter new markets.", isDraft: true },
-      { quote: "Our plant is operating below capacity.", isDraft: true },
-      { quote: "Everything is going fine. We don't have any particular need.", isDraft: true },
+      {
+        quote: "Perhaps next week would be better. We would have a clearer idea of our products and where to push them.",
+        transcriptId: "T001",
+        explanation: "Articulating internal product pipeline review and go-to-market priorities.",
+        isDraft: false,
+      },
+      {
+        quote: "When you say growth ideas, it can be anything. For example, your commodity pricing has gone up, or people are moving from salty snacks or cola to other things... leadership is trying to solve that.",
+        transcriptId: "T097",
+        explanation: "Articulating raw material margin pressures and shifting customer demand.",
+        isDraft: false,
+      },
+      {
+        quote: "Hamara chal hi raha hai, par abhi woh sab internal hi. Hum log outsource nahi kar rahe kuch bhi.",
+        transcriptId: "T021",
+        explanation: "Stating in-house capabilities with no external outsourcing requirement.",
+        isDraft: false,
+      },
     ],
     outcomeOptions: [
       { value: "shared_business_goal", label: "Shared a business goal" },
@@ -137,9 +212,24 @@ export const STAGES_CONFIG: Record<number, StageConfig> = {
       "Respect a firm rejection or do-not-contact request immediately.",
     ],
     prospectExamples: [
-      { quote: "We already have a consultant.", isDraft: true },
-      { quote: "We have an internal team handling this.", isDraft: true },
-      { quote: "Send something in writing first.", isDraft: true },
+      {
+        quote: "No, no, no point ma'am. I am not the relevant person.",
+        transcriptId: "T003",
+        explanation: "Objection based on functional role mismatch / wrong decision-maker.",
+        isDraft: false,
+      },
+      {
+        quote: "Uh, not really. I'm not interested in this at this point of time. Thank you for asking, though.",
+        transcriptId: "T020",
+        explanation: "Polite but firm disinterest without aggressive pushback.",
+        isDraft: false,
+      },
+      {
+        quote: "All those decisions are taken somewhere else, at corporate in the US. Those decisions aren't taken here locally.",
+        transcriptId: "T044",
+        explanation: "Objection highlighting subsidiary vs global headquarters decision authority.",
+        isDraft: false,
+      },
     ],
     outcomeOptions: [
       { value: "existing_provider_or_team", label: "Existing provider / internal team" },
@@ -161,9 +251,24 @@ export const STAGES_CONFIG: Record<number, StageConfig> = {
       "Do not classify a report request as a booked meeting.",
     ],
     prospectExamples: [
-      { quote: "Send me the report on WhatsApp.", isDraft: true },
-      { quote: "Call me next Tuesday afternoon.", isDraft: true },
-      { quote: "You can speak to our director.", isDraft: true },
+      {
+        quote: "Tuesday is a good day. After 2 PM. Call us in the afternoon and then we can perhaps have a working session.",
+        transcriptId: "T001",
+        explanation: "Concrete commitment to a specific weekday, time window, and meeting format.",
+        isDraft: false,
+      },
+      {
+        quote: "You can share your company profile and things on my WhatsApp. This is my WhatsApp number.",
+        transcriptId: "T043",
+        explanation: "Agreeing to receive overview materials on WhatsApp for initial review.",
+        isDraft: false,
+      },
+      {
+        quote: "Okay, that email ID we have, you can send it on that.",
+        transcriptId: "T063",
+        explanation: "Agreeing to receive document via existing recorded email address.",
+        isDraft: false,
+      },
     ],
     outcomeOptions: [
       { value: "agreed_to_receive_report", label: "Agreed to receive report" },
@@ -184,9 +289,24 @@ export const STAGES_CONFIG: Record<number, StageConfig> = {
       "Never pressure for a positive outcome during wrap-up.",
     ],
     prospectExamples: [
-      { quote: "Okay, send it across.", isDraft: true },
-      { quote: "Let's connect next week.", isDraft: true },
-      { quote: "Thank you, but we aren't interested.", isDraft: true },
+      {
+        quote: "We'll have a look at it and then we'll see if we can work together.",
+        transcriptId: "T078",
+        explanation: "Constructive wrap-up agreeing to review shared collateral before next contact.",
+        isDraft: false,
+      },
+      {
+        quote: "Okay, no problem. Thank you for your time, and I'll wait for the report.",
+        transcriptId: "T090",
+        explanation: "Polite mutual wrap-up setting expectation for report delivery.",
+        isDraft: false,
+      },
+      {
+        quote: "Naka sir, punha naka pathvu.",
+        transcriptId: "T037",
+        explanation: "Explicit regional language (Marathi) request not to send materials or call again (do_not_call).",
+        isDraft: false,
+      },
     ],
     outcomeOptions: [
       { value: "agreed_action_confirmed", label: "Confirmed agreed next action" },

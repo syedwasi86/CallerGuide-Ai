@@ -12,7 +12,9 @@ from app.schemas.call import (
     StageResultResponse,
     StageResultUpdate,
 )
+from app.schemas.ai import SuggestionRequest, SuggestionResponse
 from app.services.call_service import CallService, get_call_service
+from app.services.ai_service import AiService, get_ai_service
 
 router = APIRouter(prefix="/calls", tags=["Calls"])
 
@@ -66,6 +68,22 @@ def get_prospects(
 ) -> List[ProspectSummary]:
     """Retrieves deduplicated previous prospects sorted by most recent contact date."""
     return service.get_prospects(search=search, limit=limit)
+
+
+@router.post(
+    "/suggestions",
+    response_model=SuggestionResponse,
+    summary="Generate contextual AI response suggestion for caller",
+)
+async def generate_suggestion(
+    payload: SuggestionRequest,
+    service: AiService = Depends(get_ai_service),
+) -> SuggestionResponse:
+    """
+    Generates a spoken response suggestion based on stage, prospect words, and outcome.
+    Applies strict guardrails for do-not-call requests and gracefully falls back on error or timeout.
+    """
+    return await service.generate_suggestion(payload)
 
 
 @router.get(
