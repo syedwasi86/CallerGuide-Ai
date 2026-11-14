@@ -70,3 +70,4 @@ print("\n=== STAGE 8: CLOSE EXAMPLES ===")
 for cid, txt, prev in [(m['id'], t, turns[i-1][1] if i>0 else "") for m, turns in calls for i, (s, t) in enumerate(turns) if s == 'PROSPECT' and i >= len(turns) - 2]:
     if len(txt) > 3:
         print(f"[{cid}] PROSPECT: {txt}")
+

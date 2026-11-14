@@ -111,3 +111,4 @@ print(f"Stage 5 candidates: {len(stage_5_quotes)}")
 print(f"Stage 6 candidates: {len(stage_6_quotes)}")
 print(f"Stage 7 candidates: {len(stage_7_quotes)}")
 print(f"Stage 8 candidates: {len(stage_8_quotes)}")
+

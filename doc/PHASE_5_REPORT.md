@@ -331,3 +331,4 @@ cd frontend && npm test
    `doc/PRODUCT_SPEC.md` was preserved intact throughout the phase.
 3. **Application Stability:**
    The cold-call companion operates fully without requiring continuous cloud AI connectivity.
+

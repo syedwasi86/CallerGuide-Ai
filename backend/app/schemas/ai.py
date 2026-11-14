@@ -20,3 +20,4 @@ class SuggestionResponse(BaseModel):
     rationale: Optional[str] = Field(None, description="Brief rationale explaining why this phrasing works")
     is_fallback: bool = Field(False, description="True if response generated via local fallback heuristics")
     provider: str = Field("ai", description="Source provider (gemini, rule_engine, or fallback)")
+

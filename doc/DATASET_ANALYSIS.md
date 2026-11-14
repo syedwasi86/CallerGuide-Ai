@@ -150,3 +150,4 @@ Analysis of all 100 calls reveals six dominant objection archetypes:
 2. **Not All Stages Occur in All Calls:** 51 of the 100 calls ended before reaching Stage 5. Stages 1 through 3 are present in nearly all calls, while Stage 5 appears primarily in calls lasting over 120 seconds.
 3. **Outcome Discrepancies:** In ~15% of transcripts, the logged outcome was more optimistic or pessimistic than the actual transcript dialogue (e.g. caller logged `follow_up` when the prospect gave a hard brush-off). The stage engine preserves caller objectivity by keeping the prospect's verbatim words distinct from outcome logging.
 4. **Fictionalization:** All company names, personal names, and contact details were normalized and fictionalized by the dataset author (e.g., *Meridian Growth Partners*).
+

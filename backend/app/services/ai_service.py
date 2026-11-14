@@ -338,3 +338,4 @@ def get_ai_service() -> AiService:
     if _ai_service is None:
         _ai_service = AiService()
     return _ai_service
+
