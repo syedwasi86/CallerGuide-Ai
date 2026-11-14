@@ -304,6 +304,7 @@ export interface AiSuggestionResult {
   rationale?: string | null;
   is_fallback: boolean;
   provider: string;
+  fallback_reason?: string | null;
 }
 
 function getLocalClientFallbackSuggestion(payload: AiSuggestionPayload): AiSuggestionResult {
@@ -329,6 +330,7 @@ function getLocalClientFallbackSuggestion(payload: AiSuggestionPayload): AiSugge
         "Prospect requested no contact. Ethical cold-calling principles strictly prohibit continued selling or objection handling.",
       is_fallback: false,
       provider: "guardrail",
+      fallback_reason: null,
     };
   }
 
@@ -342,7 +344,8 @@ function getLocalClientFallbackSuggestion(payload: AiSuggestionPayload): AiSugge
       rationale:
         "Acknowledges internal capability without competing and proposes low-friction review.",
       is_fallback: true,
-      provider: "local_offline",
+      provider: "rule_engine",
+      fallback_reason: "FastAPI backend offline - generated from transcript heuristics",
     };
   }
 
@@ -352,7 +355,8 @@ function getLocalClientFallbackSuggestion(payload: AiSuggestionPayload): AiSugge
     alternative: `Could you tell me a little more about how the team at ${company} is currently managing that?`,
     rationale: "Open-ended operational exploration grounded in cold-call transcript patterns.",
     is_fallback: true,
-    provider: "local_offline",
+    provider: "rule_engine",
+    fallback_reason: "FastAPI backend offline - generated from transcript heuristics",
   };
 }
 

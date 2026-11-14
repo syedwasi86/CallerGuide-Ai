@@ -161,7 +161,7 @@ export function AiAssistant({
                     d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                   />
                 </svg>
-                Analyzing Context...
+                Generating AI suggestion...
               </>
             ) : (
               <>
@@ -195,6 +195,7 @@ export function AiAssistant({
           <button
             type="button"
             onClick={handleGenerateSuggestion}
+            disabled={isLoading}
             className="text-[11px] font-semibold text-red-800 underline hover:text-red-900 cursor-pointer"
           >
             Retry
@@ -205,7 +206,13 @@ export function AiAssistant({
       {/* Generated Suggestion Display */}
       {suggestionData && (
         <div className="mt-3.5 space-y-3">
-          <div className="rounded-lg border border-indigo-200 bg-white p-3.5 shadow-xs">
+          <div
+            className={`rounded-lg border p-3.5 shadow-xs transition ${
+              suggestionData.is_fallback
+                ? "border-amber-200 bg-amber-50/20"
+                : "border-indigo-200 bg-white"
+            }`}
+          >
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700 flex items-center gap-1.5">
                 <span className="h-2 w-2 rounded-full bg-indigo-500"></span>
@@ -213,17 +220,25 @@ export function AiAssistant({
               </span>
 
               <div className="flex items-center gap-2">
-                <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-mono text-slate-600">
-                  {suggestionData.provider === "guardrail"
-                    ? "Respectful Exit"
-                    : suggestionData.is_fallback
-                    ? "Transcript Heuristics"
-                    : "Gemini AI"}
-                </span>
+                {suggestionData.provider === "guardrail" ? (
+                  <span className="rounded bg-purple-100 px-2 py-0.5 text-[10px] font-medium text-purple-700">
+                    Ethical Guardrail
+                  </span>
+                ) : suggestionData.is_fallback ? (
+                  <span className="inline-flex items-center gap-1 rounded bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                    <span>⚠</span> Transcript-based Fallback
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-600"></span>
+                    Live Gemini AI
+                  </span>
+                )}
+
                 <button
                   type="button"
                   onClick={() => handleCopy(suggestionData.suggestion)}
-                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 cursor-pointer"
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 cursor-pointer ml-1"
                 >
                   {copied ? (
                     <span className="text-emerald-600 font-bold">✓ Copied</span>
@@ -248,6 +263,14 @@ export function AiAssistant({
                 </button>
               </div>
             </div>
+
+            {/* Fallback Notice Banner */}
+            {suggestionData.is_fallback && (
+              <div className="mt-2 text-[11px] text-amber-800 bg-amber-50 p-2 rounded border border-amber-200/60">
+                <span className="font-semibold">Notice:</span> Generated using transcript-grounded rule engine
+                {suggestionData.fallback_reason ? ` (${suggestionData.fallback_reason})` : ""}.
+              </div>
+            )}
 
             {/* Primary Suggestion */}
             <div className="mt-2.5">
@@ -296,7 +319,7 @@ export function AiAssistant({
                 disabled={isLoading}
                 className="inline-flex items-center gap-1 font-semibold text-indigo-600 hover:text-indigo-800 cursor-pointer text-[11px]"
               >
-                ↻ Regenerate
+                {isLoading ? "Generating..." : suggestionData.is_fallback ? "↻ Retry with Gemini" : "↻ Regenerate"}
               </button>
             </div>
           </div>

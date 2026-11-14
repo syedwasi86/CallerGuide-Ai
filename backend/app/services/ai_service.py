@@ -1,6 +1,7 @@
+import asyncio
 import json
 import logging
-import re
+import time
 from typing import Optional, Tuple
 import httpx
 
@@ -31,25 +32,35 @@ class AiService:
     """
     AI Response Suggestion Service.
     Generates contextual spoken-sentence guidance for callers using Google Gemini
-    with a 5-second timeout and intelligent transcript-backed fallbacks.
+    with configurable HTTP timeouts, controlled single retry for transient failures,
+    ethical guardrails, and intelligent transcript-backed rule engine fallbacks.
     """
 
     def __init__(self):
         self.api_key = settings.llm_api_key.strip() if settings.llm_api_key else ""
         self.model = settings.llm_model.strip() if settings.llm_model else "gemini-2.5-flash"
-        self.timeout = 5.0
+
+    def _get_httpx_timeout(self) -> httpx.Timeout:
+        """Constructs HTTPX timeout from configured application settings."""
+        return httpx.Timeout(
+            connect=settings.llm_connect_timeout_seconds,
+            read=settings.llm_read_timeout_seconds,
+            write=settings.llm_write_timeout_seconds,
+            pool=settings.llm_pool_timeout_seconds,
+        )
 
     def _is_do_not_call(self, payload: SuggestionRequest) -> bool:
         """Determines if prospect has requested no further contact."""
         if payload.selected_outcome in ["do_not_call", "polite_exit"]:
             return payload.selected_outcome == "do_not_call"
-        
+
         words_lower = (payload.prospect_words or "").lower().strip()
         return any(phrase in words_lower for phrase in DO_NOT_CALL_KEYWORDS)
 
     async def generate_suggestion(self, payload: SuggestionRequest) -> SuggestionResponse:
         """
         Generates contextual call response guidance based on stage, outcome, and prospect words.
+        Strictly prioritizes ethical guardrails, then live Gemini with retry, then transcript fallback.
         """
         # 1. Guardrail: If prospect requested no contact, strictly enforce respectful exit
         if self._is_do_not_call(payload):
@@ -69,33 +80,39 @@ class AiService:
                 ),
                 is_fallback=False,
                 provider="guardrail",
+                fallback_reason=None,
             )
 
-        # 2. Attempt live LLM generation if API key is configured
+        # 2. Attempt live Gemini generation if API key is configured
+        fallback_reason: Optional[str] = None
         if self.api_key:
-            try:
-                llm_response = await self._call_gemini_api(payload)
-                if llm_response:
-                    return llm_response
-            except httpx.TimeoutException:
-                logger.warning(f"Gemini API timed out after {self.timeout}s. Falling back to rule engine.")
-            except Exception as e:
-                logger.error(f"Gemini API request failed: {e}. Falling back to rule engine.")
+            llm_response, reason = await self._execute_gemini_request(payload)
+            if llm_response:
+                return llm_response
+            fallback_reason = reason or "Gemini API unavailable"
+        else:
+            fallback_reason = "No LLM API key configured"
 
-        # 3. Deterministic transcript-grounded fallback
-        fallback = self._generate_transcript_fallback(payload)
-        return fallback
+        # 3. Deterministic transcript-grounded rule engine fallback
+        return self._generate_transcript_fallback(payload, reason=fallback_reason)
 
-    async def _call_gemini_api(self, payload: SuggestionRequest) -> Optional[SuggestionResponse]:
-        """Calls Google Gemini REST API with strict 5-second timeout."""
-        prompt = self._build_prompt(payload)
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent?key={self.api_key}"
-
+    async def _execute_gemini_request(
+        self, payload: SuggestionRequest
+    ) -> Tuple[Optional[SuggestionResponse], Optional[str]]:
+        """
+        Calls Google Gemini REST API with configurable timeouts and at most ONE retry for transient errors.
+        Never logs credentials or full API keys.
+        """
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
+        headers = {
+            "x-goog-api-key": self.api_key,
+            "Content-Type": "application/json",
+        }
         body = {
             "contents": [
                 {
                     "parts": [
-                        {"text": prompt}
+                        {"text": self._build_prompt(payload)}
                     ]
                 }
             ],
@@ -107,40 +124,160 @@ class AiService:
             },
         }
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.post(url, json=body)
-            if resp.status_code != 200:
-                logger.warning(f"Gemini API returned status {resp.status_code}: {resp.text}")
-                return None
+        timeout = self._get_httpx_timeout()
+        max_attempts = 2  # 1 initial call + at most 1 retry for transient issues
+        last_error_reason = "Unknown error"
 
+        for attempt in range(1, max_attempts + 1):
+            start_time = time.perf_counter()
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    resp = await client.post(url, json=body, headers=headers)
+                    elapsed = time.perf_counter() - start_time
+
+                    if resp.status_code == 200:
+                        parsed = self._parse_gemini_response(resp, payload.stage_number)
+                        if parsed:
+                            logger.info(
+                                f"Gemini API request succeeded (attempt: {attempt}, elapsed: {elapsed:.2f}s)"
+                            )
+                            return parsed, None
+                        else:
+                            last_error_reason = f"Unexpected response structure from Gemini API (elapsed: {elapsed:.2f}s)"
+                            logger.warning(
+                                f"Unexpected response structure from Gemini API (attempt: {attempt}, elapsed: {elapsed:.2f}s)"
+                            )
+                            # Do not retry unparseable responses
+                            break
+
+                    status = resp.status_code
+                    # Non-retriable client / auth errors
+                    if status in (401, 403) or (status == 400 and "API_KEY_INVALID" in resp.text):
+                        last_error_reason = f"Authentication failure (HTTP {status})"
+                        logger.error(
+                            f"Gemini API authentication failed (HTTP {status}, elapsed: {elapsed:.2f}s). Not retrying."
+                        )
+                        break
+
+                    if status == 404:
+                        last_error_reason = f"Model '{self.model}' not found (HTTP 404)"
+                        logger.error(
+                            f"Gemini API model '{self.model}' not found (HTTP 404, elapsed: {elapsed:.2f}s). Not retrying."
+                        )
+                        break
+
+                    if 400 <= status < 500 and status != 429:
+                        last_error_reason = f"Client request error (HTTP {status})"
+                        logger.error(
+                            f"Gemini API client request error (HTTP {status}, elapsed: {elapsed:.2f}s). Not retrying."
+                        )
+                        break
+
+                    # Retriable transient errors: HTTP 429 (Rate limit) or HTTP 5xx (Server error)
+                    if status == 429:
+                        last_error_reason = f"Rate limit exceeded (HTTP 429, elapsed: {elapsed:.2f}s)"
+                        logger.warning(
+                            f"Gemini API rate limited (attempt: {attempt}, elapsed: {elapsed:.2f}s)"
+                        )
+                    elif status >= 500:
+                        last_error_reason = f"Provider server error (HTTP {status}, elapsed: {elapsed:.2f}s)"
+                        logger.warning(
+                            f"Gemini API provider server error (HTTP {status}, attempt: {attempt}, elapsed: {elapsed:.2f}s)"
+                        )
+
+                    if attempt < max_attempts:
+                        logger.info("Retrying Gemini API request once for transient error...")
+                        await asyncio.sleep(1.0)
+                        continue
+                    else:
+                        break
+
+            except httpx.ConnectTimeout:
+                elapsed = time.perf_counter() - start_time
+                last_error_reason = (
+                    f"Connection timeout after {settings.llm_connect_timeout_seconds}s"
+                )
+                logger.warning(
+                    f"Gemini API connection timed out (attempt: {attempt}, elapsed: {elapsed:.2f}s)"
+                )
+                if attempt < max_attempts:
+                    logger.info("Retrying Gemini API request once for connection timeout...")
+                    await asyncio.sleep(0.5)
+                    continue
+                break
+
+            except (httpx.ConnectError, httpx.NetworkError) as e:
+                elapsed = time.perf_counter() - start_time
+                last_error_reason = f"Connection failure: {e.__class__.__name__}"
+                logger.warning(
+                    f"Gemini API network connection failure (attempt: {attempt}, elapsed: {elapsed:.2f}s): {e.__class__.__name__}"
+                )
+                if attempt < max_attempts:
+                    logger.info("Retrying Gemini API request once for connection failure...")
+                    await asyncio.sleep(0.5)
+                    continue
+                break
+
+            except httpx.ReadTimeout:
+                elapsed = time.perf_counter() - start_time
+                last_error_reason = (
+                    f"Response read timeout after {settings.llm_read_timeout_seconds}s"
+                )
+                logger.warning(
+                    f"Gemini API read timed out after {settings.llm_read_timeout_seconds}s (elapsed: {elapsed:.2f}s). Not retrying to avoid caller delay."
+                )
+                # Do NOT retry read timeout; live calls cannot tolerate an additional 20s delay
+                break
+
+            except Exception as e:
+                elapsed = time.perf_counter() - start_time
+                last_error_reason = f"Unexpected error: {e.__class__.__name__}"
+                logger.error(
+                    f"Gemini API unexpected error (attempt: {attempt}, elapsed: {elapsed:.2f}s): {e.__class__.__name__}"
+                )
+                break
+
+        return None, last_error_reason
+
+    def _parse_gemini_response(
+        self, resp: httpx.Response, stage_number: int
+    ) -> Optional[SuggestionResponse]:
+        """Parses Gemini JSON candidate text into SuggestionResponse model."""
+        try:
             data = resp.json()
             candidates = data.get("candidates", [])
             if not candidates:
                 return None
 
-            raw_text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+            parts = candidates[0].get("content", {}).get("parts", [])
+            if not parts:
+                return None
+
+            raw_text = parts[0].get("text", "").strip()
+            if not raw_text:
+                return None
+
             try:
                 parsed = json.loads(raw_text)
-                return SuggestionResponse(
-                    suggestion=parsed.get("suggestion", "").strip(),
-                    stage_number=payload.stage_number,
-                    alternative=parsed.get("alternative", "").strip() or None,
-                    rationale=parsed.get("rationale", "").strip() or None,
-                    is_fallback=False,
-                    provider="gemini",
-                )
             except Exception:
-                # Fallback if raw text wasn't pure JSON
                 clean = raw_text.replace("```json", "").replace("```", "").strip()
                 parsed = json.loads(clean)
-                return SuggestionResponse(
-                    suggestion=parsed.get("suggestion", "").strip(),
-                    stage_number=payload.stage_number,
-                    alternative=parsed.get("alternative", "").strip() or None,
-                    rationale=parsed.get("rationale", "").strip() or None,
-                    is_fallback=False,
-                    provider="gemini",
-                )
+
+            suggestion = parsed.get("suggestion", "").strip()
+            if not suggestion:
+                return None
+
+            return SuggestionResponse(
+                suggestion=suggestion,
+                stage_number=stage_number,
+                alternative=parsed.get("alternative", "").strip() or None,
+                rationale=parsed.get("rationale", "").strip() or None,
+                is_fallback=False,
+                provider="gemini",
+                fallback_reason=None,
+            )
+        except Exception:
+            return None
 
     def _build_prompt(self, payload: SuggestionRequest) -> str:
         prospect = payload.prospect_name or "the prospect"
@@ -174,7 +311,9 @@ Return ONLY a JSON object with this exact structure:
   "rationale": "One brief sentence explaining why this works"
 }}"""
 
-    def _generate_transcript_fallback(self, payload: SuggestionRequest) -> SuggestionResponse:
+    def _generate_transcript_fallback(
+        self, payload: SuggestionRequest, reason: Optional[str] = None
+    ) -> SuggestionResponse:
         """
         Deterministic, transcript-backed fallback rules derived from the 100-transcript dataset.
         Ensures high utility even when offline, unauthenticated, or on timeout.
@@ -326,7 +465,8 @@ Return ONLY a JSON object with this exact structure:
             alternative=alt,
             rationale=rationale,
             is_fallback=True,
-            provider="rule_engine" if not self.api_key else "fallback",
+            provider="rule_engine",
+            fallback_reason=reason or "Generated from transcript heuristics",
         )
 
 
@@ -338,4 +478,3 @@ def get_ai_service() -> AiService:
     if _ai_service is None:
         _ai_service = AiService()
     return _ai_service
-

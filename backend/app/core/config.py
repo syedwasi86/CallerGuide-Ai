@@ -21,6 +21,12 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_model: str = "gemini-2.5-flash"
 
+    # LLM Timeout Configuration (in seconds)
+    llm_connect_timeout_seconds: float = 5.0
+    llm_read_timeout_seconds: float = 20.0
+    llm_write_timeout_seconds: float = 10.0
+    llm_pool_timeout_seconds: float = 5.0
+
     @property
     def is_supabase_configured(self) -> bool:
         """Return True if both Supabase URL and service-role key are present."""

@@ -62,9 +62,10 @@ const aiAssistantCode = fs.readFileSync("src/components/active-call/AiAssistant.
 assert(!aiAssistantCode.includes("Planned for Phase 5"), "Phase 5 placeholder badge must be removed");
 assert(aiAssistantCode.includes("getAiSuggestion"), "AiAssistant must call getAiSuggestion API");
 assert(aiAssistantCode.includes("Suggest a Response"), "AiAssistant must provide action button");
-assert(aiAssistantCode.includes("Analyzing Context..."), "AiAssistant must provide loading state");
+assert(aiAssistantCode.includes("Generating AI suggestion..."), "AiAssistant must show 'Generating AI suggestion...' while loading");
 assert(aiAssistantCode.includes("handleCopy"), "AiAssistant must allow copying suggestion");
-assert(aiAssistantCode.includes("Regenerate"), "AiAssistant must support regeneration");
+assert(aiAssistantCode.includes("Transcript-based Fallback"), "AiAssistant must clearly indicate transcript fallback");
+assert(aiAssistantCode.includes("Retry"), "AiAssistant must support retry/regeneration");
 console.log("  ✓ AiAssistant provides active, non-blocking response guidance with copy and retry capabilities");
 
 // 6. Verify API Client AI methods
@@ -73,8 +74,9 @@ const apiClientCode = fs.readFileSync("src/lib/api-client.ts", "utf-8");
 assert(apiClientCode.includes("export async function getAiSuggestion"), "api-client must export getAiSuggestion");
 assert(apiClientCode.includes("export interface AiSuggestionPayload"), "api-client must export AiSuggestionPayload");
 assert(apiClientCode.includes("export interface AiSuggestionResult"), "api-client must export AiSuggestionResult");
+assert(apiClientCode.includes("fallback_reason"), "AiSuggestionResult must support fallback_reason");
 assert(apiClientCode.includes("/api/calls/suggestions"), "api-client must call /api/calls/suggestions endpoint");
-console.log("  ✓ Frontend API client properly configured for AI suggestion requests");
+console.log("  ✓ Frontend API client properly configured for AI suggestion requests with fallback reasons");
 
 // 7. Verify Do-Not-Call Guardrail Logic
 console.log("\nTest 7: Verification of ethical do-not-call guardrail...");
