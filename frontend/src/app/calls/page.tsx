@@ -1,48 +1,118 @@
 "use client";
 
-import React, { useState, useMemo, useSyncExternalStore } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { FinalOutcome } from "@/types";
+import { CallSession, FinalOutcome } from "@/types";
 import { CANONICAL_OUTCOMES, STAGES_CONFIG } from "@/config/stages";
 import {
   calculateCallMetrics,
-  filterCallSessions,
+  getStoredCalls,
+  migrateLocalStorageToBackend,
   deleteCallById,
-  subscribeToCalls,
-  getCallsSnapshot,
-  getServerCallsSnapshot,
 } from "@/lib/call-storage";
+import { listCalls as apiListCalls } from "@/lib/api-client";
 
 export default function CallHistoryPage() {
   const router = useRouter();
 
-  // Modern React 19 external store subscription without useEffect cascading renders
-  const calls = useSyncExternalStore(
-    subscribeToCalls,
-    getCallsSnapshot,
-    getServerCallsSnapshot
-  );
+  const [calls, setCalls] = useState<CallSession[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [dataSource, setDataSource] = useState<"backend" | "local">("backend");
+  const [backendError, setBackendError] = useState<string | null>(null);
+  const [reloadTrigger, setReloadTrigger] = useState(0);
+
+  // Migration status (lazily checked from localStorage)
+  const [migrationStatus, setMigrationStatus] = useState<{
+    canMigrate: boolean;
+    isMigrating: boolean;
+    result: string | null;
+  }>(() => {
+    if (typeof window === "undefined" || !window.localStorage) {
+      return { canMigrate: false, isMigrating: false, result: null };
+    }
+    const local = getStoredCalls();
+    const already = window.localStorage.getItem("callguide_migration_completed_v1") === "true";
+    return { canMigrate: local.length > 0 && !already, isMigrating: false, result: null };
+  });
 
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedOutcome, setSelectedOutcome] = useState("all");
   const [selectedStage, setSelectedStage] = useState<number | "all">("all");
 
+  const refetchCalls = useCallback(() => {
+    setReloadTrigger((prev) => prev + 1);
+  }, []);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function loadData() {
+      try {
+        const res = await apiListCalls({
+          pageSize: 100,
+          search: searchQuery,
+          outcome: selectedOutcome,
+          stage: selectedStage,
+        });
+        if (!isCancelled) {
+          setCalls(res.items);
+          setDataSource("backend");
+          setIsLoading(false);
+          setBackendError(null);
+        }
+      } catch (err: unknown) {
+        if (!isCancelled) {
+          const local = getStoredCalls();
+          setCalls(local);
+          setDataSource("local");
+          setBackendError((err as Error)?.message || "FastAPI backend unreachable. Showing local sessions.");
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadData();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [searchQuery, selectedOutcome, selectedStage, reloadTrigger]);
+
   const handleStartNewCall = () => {
-    router.push(`/calls/call_${Date.now()}`);
+    const newUUID = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `call_${Date.now()}`;
+    router.push(`/calls/${newUUID}`);
   };
 
-  // Filtered calls
-  const filteredCalls = useMemo(() => {
-    return filterCallSessions(calls, {
-      search: searchQuery,
-      outcome: selectedOutcome,
-      stage: selectedStage,
-    });
-  }, [calls, searchQuery, selectedOutcome, selectedStage]);
+  const handleRunMigration = async () => {
+    setMigrationStatus((prev) => ({ ...prev, isMigrating: true, result: null }));
+    try {
+      const res = await migrateLocalStorageToBackend();
+      if (res.success) {
+        setMigrationStatus({
+          canMigrate: false,
+          isMigrating: false,
+          result: `Successfully migrated ${res.importedCount} local session(s) to PostgreSQL database!`,
+        });
+        refetchCalls();
+      } else {
+        setMigrationStatus({
+          canMigrate: true,
+          isMigrating: false,
+          result: `Migration encountered errors: ${res.errors.join("; ")}`,
+        });
+      }
+    } catch (err: unknown) {
+      setMigrationStatus({
+        canMigrate: true,
+        isMigrating: false,
+        result: `Migration failed: ${(err as Error)?.message || "Unknown error"}`,
+      });
+    }
+  };
 
-  // Derived metrics
+  // Derived metrics from currently loaded calls
   const metrics = useMemo(() => {
     return calculateCallMetrics(calls);
   }, [calls]);
@@ -60,8 +130,9 @@ export default function CallHistoryPage() {
 
   const handleDeleteCall = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirm("Are you sure you want to delete this call record from local storage?")) {
+    if (confirm("Are you sure you want to delete this call record?")) {
       deleteCallById(id);
+      refetchCalls();
     }
   };
 
@@ -118,7 +189,7 @@ export default function CallHistoryPage() {
                   CallGuide AI
                 </span>
                 <span className="ml-2 inline-flex items-center rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 ring-1 ring-inset ring-indigo-700/10">
-                  Phase 3
+                  Phase 4
                 </span>
               </div>
             </Link>
@@ -154,15 +225,63 @@ export default function CallHistoryPage() {
               Review completed cold-call runs, stage progression milestones, and outcome analytics.
             </p>
           </div>
-          <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600 shadow-xs">
-            <span className="h-2 w-2 rounded-full bg-emerald-500"></span>
-            <span>Storage: <strong>Browser localStorage</strong> (Demo Mode)</span>
+          <div className="flex items-center gap-2">
+            <div className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600 shadow-xs">
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  dataSource === "backend" ? "bg-emerald-500" : "bg-amber-500"
+                }`}
+              ></span>
+              <span>
+                Source:{" "}
+                <strong>
+                  {dataSource === "backend" ? "FastAPI + Supabase DB" : "Local Storage Fallback"}
+                </strong>
+              </span>
+            </div>
           </div>
         </div>
 
+        {/* Backend Warning Banner if offline */}
+        {backendError && (
+          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800">
+            <div className="flex items-center justify-between">
+              <div>
+                <strong>Backend Service Notice:</strong> {backendError}
+              </div>
+              <button
+                onClick={refetchCalls}
+                className="rounded-md border border-amber-300 bg-white px-2.5 py-1 font-semibold text-amber-900 hover:bg-amber-50 transition"
+              >
+                Retry Connection
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Local Demo Session Migration Notice */}
+        {migrationStatus.canMigrate && (
+          <div className="mt-4 rounded-xl border border-indigo-200 bg-indigo-50/70 p-4 text-xs text-indigo-900">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <strong>Local Demo Data Detected:</strong> You have previous Phase 3 call sessions stored in your browser. Would you like to import them to the Supabase database?
+              </div>
+              <button
+                onClick={handleRunMigration}
+                disabled={migrationStatus.isMigrating}
+                className="shrink-0 rounded-lg bg-indigo-600 px-3.5 py-1.5 font-semibold text-white shadow-xs hover:bg-indigo-700 transition disabled:opacity-50"
+              >
+                {migrationStatus.isMigrating ? "Importing to Database..." : "Import to Database →"}
+              </button>
+            </div>
+            {migrationStatus.result && (
+              <p className="mt-2 text-xs font-medium text-indigo-700">{migrationStatus.result}</p>
+            )}
+          </div>
+        )}
+
         {/* 1. Summary Metrics Cards */}
         <section className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {/* Metric 1: Total Completed Calls */}
           <div className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-xs">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
               Total Completed Calls
@@ -175,12 +294,11 @@ export default function CallHistoryPage() {
             </div>
             <p className="mt-1 text-xs text-slate-500">
               {metrics.totalCompletedCalls > 0
-                ? "Saved to browser storage"
+                ? "Loaded from database"
                 : "No completed calls yet"}
             </p>
           </div>
 
-          {/* Metric 2: Average Call Duration */}
           <div className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-xs">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
               Average Call Duration
@@ -196,7 +314,6 @@ export default function CallHistoryPage() {
             </p>
           </div>
 
-          {/* Metric 3: Most Frequent Stage */}
           <div className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-xs">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
               Furthest Stage Milestone
@@ -222,7 +339,6 @@ export default function CallHistoryPage() {
             </p>
           </div>
 
-          {/* Metric 4: Recorded Outcome Types */}
           <div className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-xs">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
               Outcome Types Recorded
@@ -356,7 +472,7 @@ export default function CallHistoryPage() {
           {hasActiveFilters && (
             <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3">
               <div className="flex items-center gap-2 text-xs text-slate-500">
-                <span>Showing {filteredCalls.length} of {calls.length} records</span>
+                <span>Showing {calls.length} records</span>
               </div>
               <button
                 type="button"
@@ -371,8 +487,12 @@ export default function CallHistoryPage() {
 
         {/* 4. Table (Desktop) & Cards (Mobile) */}
         <section className="mt-4">
-          {calls.length === 0 ? (
-            /* Empty State: 0 Calls Ever */
+          {isLoading ? (
+            <div className="flex items-center justify-center rounded-2xl border border-slate-200 bg-white p-12 text-center">
+              <span className="h-5 w-5 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent"></span>
+              <span className="ml-2 text-sm text-slate-500">Loading call records from database...</span>
+            </div>
+          ) : calls.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center">
               <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-indigo-50 text-indigo-600">
                 <svg
@@ -396,30 +516,14 @@ export default function CallHistoryPage() {
                 Complete your first outbound call session to begin tracking stage milestones, verbatim notes, and canonical outcomes.
               </p>
               <div className="mt-6 flex items-center justify-center gap-3">
-                <Link
-                  href="/calls/demo-call-1"
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-indigo-700 transition"
+                <button
+                  type="button"
+                  onClick={handleStartNewCall}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-indigo-700 transition cursor-pointer"
                 >
                   Launch Demo Call &rarr;
-                </Link>
+                </button>
               </div>
-            </div>
-          ) : filteredCalls.length === 0 ? (
-            /* Empty State: Filter Returned No Results */
-            <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center">
-              <h3 className="text-base font-semibold text-slate-900">
-                No Call Records Match Your Criteria
-              </h3>
-              <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
-                Try adjusting your search terms or clearing the stage/outcome filters.
-              </p>
-              <button
-                type="button"
-                onClick={clearFilters}
-                className="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition cursor-pointer"
-              >
-                Clear Filters
-              </button>
             </div>
           ) : (
             /* Call Records Table / Mobile Cards */
@@ -453,7 +557,7 @@ export default function CallHistoryPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 bg-white">
-                    {filteredCalls.map((call) => {
+                    {calls.map((call) => {
                       const outcomeMeta = getOutcomeMeta(call.finalOutcome);
                       const stageTitle = STAGES_CONFIG[call.furthestStageReached]?.title;
 
@@ -514,7 +618,7 @@ export default function CallHistoryPage() {
                               <button
                                 type="button"
                                 onClick={(e) => handleDeleteCall(call.id, e)}
-                                title="Delete call from local storage"
+                                title="Delete call"
                                 className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition cursor-pointer"
                               >
                                 <svg
@@ -542,7 +646,7 @@ export default function CallHistoryPage() {
 
               {/* Mobile Responsive Cards */}
               <div className="block lg:hidden divide-y divide-slate-100">
-                {filteredCalls.map((call) => {
+                {calls.map((call) => {
                   const outcomeMeta = getOutcomeMeta(call.finalOutcome);
                   const stageTitle = STAGES_CONFIG[call.furthestStageReached]?.title;
 
@@ -583,7 +687,7 @@ export default function CallHistoryPage() {
                       </div>
 
                       <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
-                        <span className="text-[11px] text-slate-400 font-mono">
+                        <span className="text-[11px] text-slate-400 font-mono truncate max-w-[150px]">
                           ID: {call.id}
                         </span>
                         <div className="flex items-center gap-2">
@@ -613,7 +717,7 @@ export default function CallHistoryPage() {
 
       {/* Footer */}
       <footer className="border-t border-slate-200 bg-white py-4 text-center text-xs text-slate-500">
-        CallGuide AI MVP &bull; Phase 3 Session Dashboard &bull; Local Browser Storage Persistence
+        CallGuide AI MVP &bull; Phase 4 Backend + Supabase PostgreSQL Integration
       </footer>
     </div>
   );

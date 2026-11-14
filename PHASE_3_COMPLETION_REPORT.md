@@ -199,3 +199,4 @@ The Next.js application server was tested via live HTTP requests on `http://loca
 1. **Storage Scope:** Call persistence is currently scoped to browser `localStorage`. Calls recorded in one browser or in incognito mode will not be visible in another browser. Cloud persistence (Supabase) and backend REST endpoints (FastAPI) are intentionally reserved for Phase 4.
 2. **AI Suggestions:** Real-time LLM suggestions remain as structured UI placeholders per the Phase 2/3 specification and will be wired to backend LLM services in Phase 5.
 3. **Multi-User / Auth:** No authentication is present in Phase 3 per instructions.
+

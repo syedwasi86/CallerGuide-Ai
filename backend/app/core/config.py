@@ -7,15 +7,27 @@ class Settings(BaseSettings):
     app_name: str = "CallGuide AI Backend"
     environment: str = "development"
     port: int = 8000
-    cors_origins: Union[List[str], str] = ["http://localhost:3000"]
+    cors_origins: Union[List[str], str] = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
 
-    # Supabase placeholders (for future phases)
+    # Supabase Configuration
     supabase_url: str = ""
     supabase_service_role_key: str = ""
+    frontend_origin: str = ""
 
-    # LLM placeholders (for future phases)
+    # LLM Provider Configuration
     llm_api_key: str = ""
     llm_model: str = "gemini-2.5-flash"
+
+    @property
+    def is_supabase_configured(self) -> bool:
+        """Return True if both Supabase URL and service-role key are present."""
+        return bool(
+            self.supabase_url.strip()
+            and self.supabase_service_role_key.strip()
+        )
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -32,4 +44,3 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
-

@@ -1,42 +1,71 @@
 "use client";
 
-import React, { useMemo, useSyncExternalStore, Suspense } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { StageNumber } from "@/types";
+import { CallSession, StageNumber } from "@/types";
 import { STAGES_CONFIG, CANONICAL_OUTCOMES } from "@/config/stages";
-import {
-  deleteCallById,
-  subscribeToCalls,
-  getCallsSnapshot,
-  getServerCallsSnapshot,
-} from "@/lib/call-storage";
+import { getCallById, deleteCallById } from "@/lib/call-storage";
+import { getCall as apiGetCall } from "@/lib/api-client";
 
 function CallDetailContent() {
   const params = useParams();
   const router = useRouter();
   const callId = (params?.id as string) || "";
 
-  // Subscribe to call storage via useSyncExternalStore
-  const calls = useSyncExternalStore(
-    subscribeToCalls,
-    getCallsSnapshot,
-    getServerCallsSnapshot
-  );
+  const [call, setCall] = useState<CallSession | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [dataSource, setDataSource] = useState<"backend" | "local">("backend");
 
-  const call = useMemo(() => {
-    return calls.find((c) => c.id === callId) || null;
-  }, [calls, callId]);
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function loadCall() {
+      if (!callId) {
+        setIsLoading(false);
+        return;
+      }
+
+      setIsLoading(true);
+
+      // 1. Try fetching from FastAPI backend
+      try {
+        const backendCall = await apiGetCall(callId);
+        if (isCancelled) return;
+        setCall(backendCall);
+        setDataSource("backend");
+        setIsLoading(false);
+        return;
+      } catch {
+        // Fall through to local fallback
+      }
+
+      // 2. Try fetching from localStorage
+      const local = getCallById(callId);
+      if (!isCancelled) {
+        setCall(local);
+        setDataSource("local");
+        setIsLoading(false);
+      }
+    }
+
+    loadCall();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [callId]);
 
   const handleDelete = () => {
-    if (confirm("Are you sure you want to delete this call record from local storage?")) {
+    if (confirm("Are you sure you want to delete this call record?")) {
       deleteCallById(callId);
       router.push("/calls");
     }
   };
 
   const handleStartAnotherCall = () => {
-    router.push(`/calls/call_${Date.now()}`);
+    const newUUID = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `call_${Date.now()}`;
+    router.push(`/calls/${newUUID}`);
   };
 
   const formatDate = (isoString?: string) => {
@@ -56,6 +85,17 @@ function CallDetailContent() {
       return isoString;
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+        <div className="flex items-center gap-2 text-sm text-slate-500 font-medium">
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent"></span>
+          Loading call record from database...
+        </div>
+      </div>
+    );
+  }
 
   // Not Found State
   if (!call) {
@@ -80,7 +120,7 @@ function CallDetailContent() {
               Call Record Not Found
             </h1>
             <p className="mt-2 text-xs text-slate-500">
-              No completed call with ID <code className="font-mono text-slate-700">{callId}</code> was found in your browser&apos;s local storage.
+              No completed call with ID <code className="font-mono text-slate-700">{callId}</code> was found in the database or local storage.
             </p>
             <div className="mt-6 flex items-center justify-center gap-3">
               <Link
@@ -169,8 +209,8 @@ function CallDetailContent() {
                 <span className="text-xs font-semibold uppercase tracking-wider text-indigo-600">
                   Call Record Detail
                 </span>
-                <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
-                  Local Browser Storage
+                <span className="rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">
+                  {dataSource === "backend" ? "FastAPI + Supabase PostgreSQL" : "Local Storage Fallback"}
                 </span>
               </div>
               <h1 className="mt-2 text-2xl font-extrabold text-slate-900 sm:text-3xl">

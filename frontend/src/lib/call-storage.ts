@@ -2,6 +2,42 @@ import { CallSession, FinalOutcome, StageNumber } from "@/types";
 import { CANONICAL_OUTCOMES, STAGES_CONFIG } from "@/config/stages";
 
 export const STORAGE_KEY = "callguide_call_sessions_v1";
+export const ACTIVE_CALL_REF_KEY = "callguide_active_call_id_ref";
+export const MIGRATION_FLAG_KEY = "callguide_migration_completed_v1";
+
+/**
+ * Save in-progress call ID reference locally (reference only; actual data is in backend).
+ */
+export function setActiveCallReference(callId: string): void {
+  if (typeof window === "undefined" || !window.localStorage) return;
+  try {
+    window.localStorage.setItem(ACTIVE_CALL_REF_KEY, callId);
+  } catch (err) {
+    console.error("Failed to set active call reference:", err);
+  }
+}
+
+/**
+ * Retrieve in-progress call ID reference for recovery after browser refresh.
+ */
+export function getActiveCallReference(): string | null {
+  if (typeof window === "undefined" || !window.localStorage) return null;
+  try {
+    return window.localStorage.getItem(ACTIVE_CALL_REF_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Clear in-progress call ID reference once completed or reset.
+ */
+export function clearActiveCallReference(): void {
+  if (typeof window === "undefined" || !window.localStorage) return;
+  try {
+    window.localStorage.removeItem(ACTIVE_CALL_REF_KEY);
+  } catch {}
+}
 
 /**
  * Retrieve all completed call sessions from localStorage.
@@ -247,6 +283,88 @@ export function calculateCallMetrics(calls: CallSession[]): CallMetrics {
     mostFrequentStage,
     outcomeDistribution,
   };
+}
+
+/**
+ * Migrate legacy Phase 3 localStorage call sessions to FastAPI / Supabase backend.
+ * Idempotent, non-destructive (preserves local records), reports status cleanly.
+ */
+export async function migrateLocalStorageToBackend(): Promise<{
+  success: boolean;
+  totalFound: number;
+  importedCount: number;
+  alreadyMigrated: boolean;
+  errors: string[];
+}> {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return { success: false, totalFound: 0, importedCount: 0, alreadyMigrated: false, errors: ["No window.localStorage available"] };
+  }
+
+  const localCalls = getStoredCalls();
+  if (localCalls.length === 0) {
+    return { success: true, totalFound: 0, importedCount: 0, alreadyMigrated: true, errors: [] };
+  }
+
+  const isAlreadyMigrated = window.localStorage.getItem(MIGRATION_FLAG_KEY) === "true";
+  if (isAlreadyMigrated) {
+    return { success: true, totalFound: localCalls.length, importedCount: 0, alreadyMigrated: true, errors: [] };
+  }
+
+  let imported = 0;
+  const errors: string[] = [];
+
+  // Dynamically import api-client to avoid circular deps
+  const { createCall, updateCallStage, closeCall } = await import("@/lib/api-client");
+
+  for (const call of localCalls) {
+    try {
+      // Validate or generate UUID
+      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(call.id);
+      
+      const created = await createCall({
+        prospectName: call.prospectName,
+        companyName: call.companyName,
+        prospectRole: call.prospectRole,
+        id: isUUID ? call.id : undefined,
+        startedAt: call.startedAt,
+      });
+
+      // Import stage results
+      if (call.stageResults) {
+        for (let s = 1; s <= 8; s++) {
+          const stageData = call.stageResults[s as StageNumber];
+          if (stageData && (stageData.selectedOutcome || stageData.prospectWords)) {
+            await updateCallStage(created.id, s, {
+              stageOutcome: stageData.selectedOutcome,
+              prospectWords: stageData.prospectWords,
+              additionalData: stageData.extraData,
+            });
+          }
+        }
+      }
+
+      // Close call if it was completed
+      if (call.status === "completed" && call.finalOutcome) {
+        await closeCall(created.id, {
+          finalOutcome: call.finalOutcome,
+          durationSeconds: call.durationSeconds,
+          nextStepNotes: call.nextStepNotes,
+          endedAt: call.endedAt,
+        });
+      }
+
+      imported++;
+    } catch (err: unknown) {
+      errors.push(`Failed to migrate call "${call.prospectName}" (${call.id}): ${(err as Error)?.message || "Unknown error"}`);
+    }
+  }
+
+  if (errors.length === 0) {
+    window.localStorage.setItem(MIGRATION_FLAG_KEY, "true");
+    return { success: true, totalFound: localCalls.length, importedCount: imported, alreadyMigrated: false, errors: [] };
+  }
+
+  return { success: false, totalFound: localCalls.length, importedCount: imported, alreadyMigrated: false, errors };
 }
 
 /**
