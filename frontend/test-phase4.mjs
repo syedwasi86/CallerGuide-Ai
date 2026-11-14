@@ -63,9 +63,9 @@ function mapBackendCallToSession(data) {
     for (const s of data.stage_results) {
       if (s.stage_number >= 1 && s.stage_number <= 8) {
         stageResultsMap[s.stage_number] = {
-          selectedOutcome: s.stage_outcome || null,
+          selectedOutcome: s.selected_outcome || s.stage_outcome || null,
           prospectWords: s.prospect_words || "",
-          extraData: s.additional_data || {},
+          extraData: s.extra_data || s.additional_data || {},
           updatedAt: s.updated_at,
         };
       }
@@ -77,13 +77,14 @@ function mapBackendCallToSession(data) {
     prospectName: data.prospect_name,
     companyName: data.company_name,
     prospectRole: data.prospect_role,
+    phoneNumber: data.phone_number || undefined,
     status: data.status,
     currentStage: data.current_stage,
     furthestStageReached: data.furthest_stage_reached,
     startedAt: data.started_at,
     endedAt: data.ended_at || undefined,
     durationSeconds: data.duration_seconds || 0,
-    finalOutcome: data.final_outcome || null,
+    finalOutcome: data.final_outcome || data.outcome || null,
     nextStepNotes: data.next_step_notes || undefined,
     stageResults: stageResultsMap,
   };
@@ -94,6 +95,7 @@ const mockBackendCall = {
   prospect_name: "Rahul Sharma",
   company_name: "Apex Industrial Solutions",
   prospect_role: "VP of Operations",
+  phone_number: "+91-9876543210",
   status: "completed",
   current_stage: 5,
   furthest_stage_reached: 5,
@@ -115,9 +117,9 @@ const mockBackendCall = {
       id: "660e8400-e29b-41d4-a716-446655440002",
       call_id: "550e8400-e29b-41d4-a716-446655440000",
       stage_number: 5,
-      stage_outcome: "need_expressed",
+      selected_outcome: "need_expressed",
       prospect_words: "Downtime is our biggest problem.",
-      additional_data: { priority: "high" },
+      extra_data: { priority: "high" },
     },
   ],
 };
@@ -126,7 +128,9 @@ const session = mapBackendCallToSession(mockBackendCall);
 assert.strictEqual(session.id, "550e8400-e29b-41d4-a716-446655440000");
 assert.strictEqual(session.prospectName, "Rahul Sharma");
 assert.strictEqual(session.companyName, "Apex Industrial Solutions");
+assert.strictEqual(session.phoneNumber, "+91-9876543210");
 assert.strictEqual(session.stageResults[1].selectedOutcome, "right_person_reached");
+assert.strictEqual(session.stageResults[5].selectedOutcome, "need_expressed");
 assert.strictEqual(session.stageResults[5].prospectWords, "Downtime is our biggest problem.");
 assert.strictEqual(session.stageResults[8].selectedOutcome, null); // Unreached stage initialized cleanly
 console.log("  ✓ Backend response maps cleanly to full 8-stage CallSession model");
@@ -172,3 +176,4 @@ console.log("  ✓ Call detail page wired to FastAPI backend");
 console.log("\n============================================================");
 console.log("🎉 All Phase 4 Frontend Integration checks PASSED (100%)!");
 console.log("============================================================\n");
+

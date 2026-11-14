@@ -364,14 +364,33 @@ function ActiveCallContent() {
               <div className="flex items-start justify-between flex-wrap gap-4 border-b border-slate-100 pb-4">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
-                      Call Completed & Saved
-                    </span>
-                    <span className="rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">
-                      FastAPI + Supabase PostgreSQL
-                    </span>
+                    {syncStatus === "synced" ? (
+                      <>
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                          Call Completed & Saved
+                        </span>
+                        <span className="rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">
+                          FastAPI + Supabase PostgreSQL
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700 ring-1 ring-inset ring-amber-600/20">
+                          <span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
+                          Saved Locally in Browser Only
+                        </span>
+                        <span className="rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                          Backend Offline Fallback
+                        </span>
+                      </>
+                    )}
                   </div>
+                  {syncStatus !== "synced" && (
+                    <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/80 p-2.5 text-xs text-amber-900">
+                      ⚠️ <strong>Database Sync Notice:</strong> This call session could not be finalized to Supabase PostgreSQL because the FastAPI backend was unreachable. It is preserved safely in local browser storage and can be imported to the database from Call History.
+                    </div>
+                  )}
                   <h2 className="mt-2 text-2xl font-extrabold text-slate-900">
                     Call Record Summary: {prospectName}
                   </h2>
@@ -444,7 +463,9 @@ function ActiveCallContent() {
                     {Math.floor(durationSeconds / 60)}m {durationSeconds % 60}s
                   </div>
                   <p className="mt-1 text-xs text-slate-500">
-                    Persisted to Supabase PostgreSQL database.
+                    {syncStatus === "synced"
+                      ? "Persisted to Supabase PostgreSQL database."
+                      : "Saved in browser local storage (FastAPI offline)."}
                   </p>
                 </div>
               </div>

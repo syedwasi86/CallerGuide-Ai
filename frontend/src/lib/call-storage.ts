@@ -286,6 +286,25 @@ export function calculateCallMetrics(calls: CallSession[]): CallMetrics {
 }
 
 /**
+ * Helper to ensure deterministic UUID generation for legacy non-UUID demo session IDs (e.g. 'demo-call-1')
+ * Guarantees that repeated migrations never generate duplicate database records.
+ */
+function toDeterministicUUID(rawId: string): string {
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawId)) {
+    return rawId;
+  }
+  let hash = 0;
+  for (let i = 0; i < rawId.length; i++) {
+    hash = (hash << 5) - hash + rawId.charCodeAt(i);
+    hash |= 0;
+  }
+  const hex = Math.abs(hash).toString(16).padStart(8, "0");
+  const numPart = rawId.replace(/\D/g, "") || "1";
+  const paddedNum = numPart.padStart(12, "0").slice(-12);
+  return `${hex}-0000-4000-8000-${paddedNum}`;
+}
+
+/**
  * Migrate legacy Phase 3 localStorage call sessions to FastAPI / Supabase backend.
  * Idempotent, non-destructive (preserves local records), reports status cleanly.
  */
@@ -318,14 +337,15 @@ export async function migrateLocalStorageToBackend(): Promise<{
 
   for (const call of localCalls) {
     try {
-      // Validate or generate UUID
-      const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(call.id);
+      // Generate or preserve deterministic UUID
+      const targetUUID = toDeterministicUUID(call.id);
       
       const created = await createCall({
         prospectName: call.prospectName,
         companyName: call.companyName,
         prospectRole: call.prospectRole,
-        id: isUUID ? call.id : undefined,
+        phoneNumber: call.phoneNumber,
+        id: targetUUID,
         startedAt: call.startedAt,
       });
 

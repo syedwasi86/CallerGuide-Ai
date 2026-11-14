@@ -48,7 +48,7 @@ class CallService:
             return {"database": "error"}
 
     def create_call(self, data: CallCreate) -> CallResponse:
-        """Create a new in-progress call session."""
+        """Create or idempotent upsert an in-progress call session."""
         call_id = str(data.id) if data.id else str(uuid4())
         started_at = (
             data.started_at.isoformat()
@@ -60,7 +60,8 @@ class CallService:
             "id": call_id,
             "prospect_name": data.prospect_name,
             "company_name": data.company_name,
-            "prospect_role": data.prospect_role,
+            "prospect_role": data.prospect_role or "Caller",
+            "phone_number": data.phone_number,
             "status": "in_progress",
             "current_stage": 1,
             "furthest_stage_reached": 1,
@@ -69,11 +70,12 @@ class CallService:
         }
 
         try:
-            res = self.client.table("calls").insert(call_data).execute()
+            # Idempotent upsert by ID ensures re-running migration or recovery never causes duplicate key errors
+            res = self.client.table("calls").upsert(call_data, on_conflict="id").execute()
             if not res.data:
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Failed to create call record"
+                    detail="Failed to create or upsert call record"
                 )
             created = res.data[0]
             created["stage_results"] = []
@@ -119,7 +121,9 @@ class CallService:
     def update_stage(
         self, call_id: UUID, stage_number: int, data: StageResultUpdate
     ) -> StageResultResponse:
-        """Upsert a stage result and monotonically advance furthest_stage_reached."""
+        """
+        Upsert a stage result while preserving existing data and monotonically advancing furthest_stage_reached.
+        """
         if stage_number < 1 or stage_number > 8:
             raise HTTPException(
                 status_code=422,
@@ -135,13 +139,43 @@ class CallService:
             )
         call = call_res.data[0]
 
-        # 2. Upsert stage result
+        # 2. Check for existing stage record to preserve existing verbatim words or outcomes if omitted in update
+        existing_stage_res = (
+            self.client.table("call_stage_results")
+            .select("*")
+            .eq("call_id", str(call_id))
+            .eq("stage_number", stage_number)
+            .execute()
+        )
+
+        existing_record = existing_stage_res.data[0] if (existing_stage_res.data and len(existing_stage_res.data) > 0) else None
+
+        # Determine outcome (preserve existing if not provided)
+        chosen_outcome = data.stage_outcome or data.selected_outcome
+        if chosen_outcome is None and existing_record:
+            chosen_outcome = existing_record.get("stage_outcome") or existing_record.get("selected_outcome")
+
+        # Determine verbatim prospect words (preserve existing if not provided)
+        words = data.prospect_words
+        if words is None and existing_record:
+            words = existing_record.get("prospect_words")
+
+        # Merge additional / extra data
+        merged_extra = {}
+        if existing_record:
+            merged_extra.update(existing_record.get("additional_data") or existing_record.get("extra_data") or {})
+        incoming_extra = data.additional_data or data.extra_data
+        if incoming_extra:
+            merged_extra.update(incoming_extra)
+
         stage_payload = {
             "call_id": str(call_id),
             "stage_number": stage_number,
-            "stage_outcome": data.stage_outcome,
-            "prospect_words": data.prospect_words,
-            "additional_data": data.additional_data or {},
+            "stage_outcome": chosen_outcome,
+            "selected_outcome": chosen_outcome,
+            "prospect_words": words,
+            "additional_data": merged_extra,
+            "extra_data": merged_extra,
         }
 
         try:
@@ -176,10 +210,11 @@ class CallService:
 
     def close_call(self, call_id: UUID, data: CallClose) -> CallResponse:
         """Close an active call, validating canonical outcome and preventing duplicates."""
-        if data.final_outcome not in CANONICAL_OUTCOMES:
+        chosen_outcome = data.final_outcome or data.outcome
+        if not chosen_outcome or chosen_outcome not in CANONICAL_OUTCOMES:
             raise HTTPException(
                 status_code=422,
-                detail=f"Invalid final outcome '{data.final_outcome}'. Must be one of: {', '.join(CANONICAL_OUTCOMES)}"
+                detail=f"Invalid final outcome '{chosen_outcome}'. Must be one of: {', '.join(CANONICAL_OUTCOMES)}"
             )
 
         # 1. Fetch current call
@@ -193,7 +228,7 @@ class CallService:
 
         # 2. Check if already completed (prevent accidental duplicate creation/mutation)
         if call.get("status") == "completed":
-            # Return current completed call without duplicating
+            # Return current completed call safely without duplicating
             return self.get_call(call_id)
 
         # 3. Mark completed
@@ -205,9 +240,11 @@ class CallService:
 
         update_payload = {
             "status": "completed",
-            "final_outcome": data.final_outcome,
+            "final_outcome": chosen_outcome,
+            "outcome": chosen_outcome,
             "duration_seconds": data.duration_seconds,
             "next_step_notes": data.next_step_notes,
+            "next_step_data": data.next_step_data or {},
             "ended_at": ended_at,
         }
 
@@ -241,9 +278,8 @@ class CallService:
             # Filters
             if search and search.strip():
                 term = search.strip()
-                # Supabase or-filter syntax: "prospect_name.ilike.%term%,company_name.ilike.%term%,prospect_role.ilike.%term%"
                 query = query.or_(
-                    f"prospect_name.ilike.%{term}%,company_name.ilike.%{term}%,prospect_role.ilike.%{term}%"
+                    f"prospect_name.ilike.%{term}%,company_name.ilike.%{term}%,prospect_role.ilike.%{term}%,phone_number.ilike.%{term}%"
                 )
 
             if outcome and outcome != "all":

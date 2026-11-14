@@ -72,6 +72,7 @@ class MockTableQuery:
     def upsert(self, payload: Dict[str, Any], on_conflict: str = ""):
         self._action = "upsert"
         self._upsert_payload = payload
+        self._on_conflict = on_conflict
         return self
 
     def update(self, payload: Dict[str, Any]):
@@ -92,14 +93,20 @@ class MockTableQuery:
             return MockPostgrestResponse([record])
 
         if self._action == "upsert":
-            call_id = str(self._upsert_payload.get("call_id"))
-            stage_number = self._upsert_payload.get("stage_number")
-
             existing = None
-            for r in self.db[self.table_name]:
-                if str(r.get("call_id")) == call_id and r.get("stage_number") == stage_number:
-                    existing = r
-                    break
+            if self._on_conflict == "id" or (self.table_name == "calls" and "id" in self._upsert_payload):
+                target_id = str(self._upsert_payload.get("id"))
+                for r in self.db[self.table_name]:
+                    if str(r.get("id")) == target_id:
+                        existing = r
+                        break
+            elif "call_id" in self._upsert_payload and "stage_number" in self._upsert_payload:
+                call_id = str(self._upsert_payload.get("call_id"))
+                stage_number = self._upsert_payload.get("stage_number")
+                for r in self.db[self.table_name]:
+                    if str(r.get("call_id")) == call_id and r.get("stage_number") == stage_number:
+                        existing = r
+                        break
 
             if existing:
                 existing.update(self._upsert_payload)
@@ -107,7 +114,8 @@ class MockTableQuery:
                 return MockPostgrestResponse([existing])
             else:
                 record = dict(self._upsert_payload)
-                record["id"] = str(uuid4())
+                if "id" not in record or not record["id"]:
+                    record["id"] = str(uuid4())
                 record["created_at"] = now
                 record["updated_at"] = now
                 self.db[self.table_name].append(record)
@@ -328,6 +336,83 @@ def test_stage_upsert_without_duplication(test_client):
     ]
     assert len(stage_2_results) == 1
     assert stage_2_results[0]["prospect_words"] == "Updated note."
+
+
+def test_stage_upsert_preserves_existing_data(test_client):
+    """Verify that updating stage outcome preserves previously captured prospect words."""
+    create_res = test_client.post(
+        "/api/calls",
+        json={
+            "prospect_name": "Meera Nair",
+            "company_name": "CloudWorks",
+            "prospect_role": "Director",
+        },
+    )
+    call_id = create_res.json()["id"]
+
+    # Step 1: Caller enters verbatim words first
+    test_client.put(
+        f"/api/calls/{call_id}/stages/4",
+        json={"prospect_words": "We are currently evaluating solutions."},
+    )
+
+    # Step 2: Later caller selects an outcome without re-entering words
+    test_client.put(
+        f"/api/calls/{call_id}/stages/4",
+        json={"stage_outcome": "explained_business"},
+    )
+
+    # Check that BOTH outcome and words are preserved
+    call_res = test_client.get(f"/api/calls/{call_id}")
+    stage_4 = [s for s in call_res.json()["stage_results"] if s["stage_number"] == 4][0]
+    assert stage_4["stage_outcome"] == "explained_business"
+    assert stage_4["prospect_words"] == "We are currently evaluating solutions."
+
+
+def test_create_call_with_phone_number_and_idempotence(test_client):
+    """Verify phone_number preservation and idempotent re-creation with identical ID."""
+    fixed_id = str(uuid4())
+    payload = {
+        "id": fixed_id,
+        "prospect_name": "Arjun Kapoor",
+        "company_name": "Atlas Freight",
+        "prospect_role": "COO",
+        "phone_number": "+1-555-0199",
+    }
+    # Initial creation
+    res1 = test_client.post("/api/calls", json=payload)
+    assert res1.status_code == 201
+    assert res1.json()["id"] == fixed_id
+    assert res1.json()["phone_number"] == "+1-555-0199"
+
+    # Idempotent re-creation (simulating migration re-run)
+    res2 = test_client.post("/api/calls", json=payload)
+    assert res2.status_code == 201
+    assert res2.json()["id"] == fixed_id
+
+
+def test_close_call_with_outcome_alias(test_client):
+    """Verify close endpoint accepts 'outcome' per PRODUCT_SPEC Section 10.4."""
+    create_res = test_client.post(
+        "/api/calls",
+        json={
+            "prospect_name": "Sanjay Dutt",
+            "company_name": "Media Group",
+            "prospect_role": "Producer",
+        },
+    )
+    call_id = create_res.json()["id"]
+
+    # Use 'outcome' instead of 'final_outcome'
+    res = test_client.post(
+        f"/api/calls/{call_id}/close",
+        json={"outcome": "agreed_to_receive_report", "duration_seconds": 95},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "completed"
+    assert data["final_outcome"] == "agreed_to_receive_report"
+    assert data["outcome"] == "agreed_to_receive_report"
 
 
 def test_furthest_stage_monotonic_behavior(test_client):

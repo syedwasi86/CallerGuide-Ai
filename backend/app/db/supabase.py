@@ -25,3 +25,4 @@ def get_supabase_client() -> Optional[Client]:
             raise RuntimeError(f"Failed to initialize Supabase client: {str(e)}") from e
 
     return _supabase_client
+

@@ -5,8 +5,10 @@ export interface BackendStageResult {
   call_id: string;
   stage_number: number;
   stage_outcome: string | null;
+  selected_outcome?: string | null;
   prospect_words: string | null;
   additional_data: Record<string, unknown> | null;
+  extra_data?: Record<string, unknown> | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -16,6 +18,7 @@ export interface BackendCallResponse {
   prospect_name: string;
   company_name: string;
   prospect_role: string;
+  phone_number?: string | null;
   status: "in_progress" | "completed";
   current_stage: number;
   furthest_stage_reached: number;
@@ -23,6 +26,7 @@ export interface BackendCallResponse {
   ended_at: string | null;
   duration_seconds: number;
   final_outcome: string | null;
+  outcome?: string | null;
   next_step_notes: string | null;
   created_at?: string;
   updated_at?: string;
@@ -63,9 +67,9 @@ export function mapBackendCallToSession(data: BackendCallResponse): CallSession 
     for (const s of data.stage_results) {
       if (s.stage_number >= 1 && s.stage_number <= 8) {
         stageResultsMap[s.stage_number as StageNumber] = {
-          selectedOutcome: s.stage_outcome || null,
+          selectedOutcome: s.selected_outcome || s.stage_outcome || null,
           prospectWords: s.prospect_words || "",
-          extraData: s.additional_data as Record<string, string> || {},
+          extraData: ((s.extra_data || s.additional_data || {}) as Record<string, string>),
           updatedAt: s.updated_at,
         };
       }
@@ -77,13 +81,14 @@ export function mapBackendCallToSession(data: BackendCallResponse): CallSession 
     prospectName: data.prospect_name,
     companyName: data.company_name,
     prospectRole: data.prospect_role,
+    phoneNumber: data.phone_number || undefined,
     status: data.status,
     currentStage: data.current_stage as StageNumber,
     furthestStageReached: data.furthest_stage_reached as StageNumber,
     startedAt: data.started_at,
     endedAt: data.ended_at || undefined,
     durationSeconds: data.duration_seconds || 0,
-    finalOutcome: (data.final_outcome as FinalOutcome) || null,
+    finalOutcome: ((data.final_outcome || data.outcome) as FinalOutcome) || null,
     nextStepNotes: data.next_step_notes || undefined,
     stageResults: stageResultsMap,
   };
@@ -158,6 +163,7 @@ export async function createCall(payload: {
   prospectName: string;
   companyName: string;
   prospectRole: string;
+  phoneNumber?: string;
   id?: string;
   startedAt?: string;
 }): Promise<CallSession> {
@@ -165,6 +171,7 @@ export async function createCall(payload: {
     prospect_name: payload.prospectName,
     company_name: payload.companyName,
     prospect_role: payload.prospectRole,
+    phone_number: payload.phoneNumber,
     id: payload.id,
     started_at: payload.startedAt,
   };
@@ -193,8 +200,10 @@ export async function updateCallStage(
 ): Promise<BackendStageResult> {
   const body = {
     stage_outcome: payload.stageOutcome,
+    selected_outcome: payload.stageOutcome,
     prospect_words: payload.prospectWords,
     additional_data: payload.additionalData,
+    extra_data: payload.additionalData,
   };
 
   return apiFetch<BackendStageResult>(`/api/calls/${callId}/stages/${stageNumber}`, {
@@ -214,6 +223,7 @@ export async function closeCall(
 ): Promise<CallSession> {
   const body = {
     final_outcome: payload.finalOutcome,
+    outcome: payload.finalOutcome,
     duration_seconds: payload.durationSeconds,
     next_step_notes: payload.nextStepNotes,
     ended_at: payload.endedAt,

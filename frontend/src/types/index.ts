@@ -53,6 +53,7 @@ export interface CallSession {
   prospectName: string;
   companyName: string;
   prospectRole: string;
+  phoneNumber?: string;
   status: "in_progress" | "completed";
   currentStage: StageNumber;
   furthestStageReached: StageNumber;

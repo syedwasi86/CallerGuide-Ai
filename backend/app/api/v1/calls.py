@@ -112,3 +112,4 @@ def close_call(
     Prevents duplicate close operations.
     """
     return service.close_call(call_id, payload)
+
