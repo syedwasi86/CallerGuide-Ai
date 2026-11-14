@@ -1,7 +1,12 @@
-import React from "react";
+"use client";
+
+import React, { useState } from "react";
 import Link from "next/link";
+import { StartCallModal } from "@/components/active-call/StartCallModal";
 
 export default function Home() {
+  const [isStartModalOpen, setIsStartModalOpen] = useState(false);
+
   const stages = [
     { num: 1, name: "Opening" },
     { num: 2, name: "Purpose" },
@@ -14,7 +19,7 @@ export default function Home() {
   ];
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col bg-slate-50">
       {/* Top Navigation */}
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
@@ -27,7 +32,7 @@ export default function Home() {
                 CallGuide AI
               </span>
               <span className="ml-2 inline-flex items-center rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 ring-1 ring-inset ring-indigo-700/10">
-                Phase 3
+                Phase 4.1
               </span>
             </div>
           </div>
@@ -38,12 +43,13 @@ export default function Home() {
             >
               Call History Dashboard
             </Link>
-            <Link
-              href="/calls/demo-call-1"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs transition hover:bg-indigo-700"
+            <button
+              type="button"
+              onClick={() => setIsStartModalOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs transition hover:bg-indigo-700 cursor-pointer"
             >
               Launch Active Call &rarr;
-            </Link>
+            </button>
           </div>
         </div>
       </header>
@@ -72,19 +78,21 @@ export default function Home() {
               <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">
                 Structured 8-Stage Methodology
               </p>
-              <Link
-                href="/calls/demo-call-1"
-                className="text-xs font-semibold text-indigo-600 hover:text-indigo-700"
+              <button
+                type="button"
+                onClick={() => setIsStartModalOpen(true)}
+                className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 cursor-pointer"
               >
-                Test in Live Demo Call &rarr;
-              </Link>
+                Start Call with Prospect &rarr;
+              </button>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
               {stages.map((stage) => (
-                <Link
+                <button
                   key={stage.num}
-                  href={`/calls/demo-call-1`}
-                  className="flex flex-col items-center justify-center rounded-lg border border-slate-200 bg-slate-50/60 p-3 text-center transition hover:border-indigo-300 hover:bg-indigo-50/50"
+                  type="button"
+                  onClick={() => setIsStartModalOpen(true)}
+                  className="flex flex-col items-center justify-center rounded-lg border border-slate-200 bg-slate-50/60 p-3 text-center transition hover:border-indigo-300 hover:bg-indigo-50/50 cursor-pointer"
                 >
                   <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-700">
                     {stage.num}
@@ -92,7 +100,7 @@ export default function Home() {
                   <span className="mt-1.5 text-xs font-medium text-slate-800">
                     {stage.name}
                   </span>
-                </Link>
+                </button>
               ))}
             </div>
           </div>
@@ -106,7 +114,7 @@ export default function Home() {
                 Call History & Sessions
               </h2>
               <p className="text-sm text-slate-500">
-                Track previous call runs, furthest stages reached, and canonical outcomes stored in local browser storage.
+                Track previous call runs, furthest stages reached, and canonical outcomes stored in Supabase PostgreSQL.
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -116,12 +124,13 @@ export default function Home() {
               >
                 View Call History
               </Link>
-              <Link
-                href="/calls/demo-call-1"
-                className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-xs transition hover:bg-indigo-700"
+              <button
+                type="button"
+                onClick={() => setIsStartModalOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-xs transition hover:bg-indigo-700 cursor-pointer"
               >
-                + Start Demo Call
-              </Link>
+                + Start Call
+              </button>
             </div>
           </div>
 
@@ -166,9 +175,15 @@ export default function Home() {
         </section>
       </main>
 
+      {/* Start Call Dialog */}
+      <StartCallModal
+        isOpen={isStartModalOpen}
+        onClose={() => setIsStartModalOpen(false)}
+      />
+
       {/* Footer */}
       <footer className="border-t border-slate-200 bg-white py-4 text-center text-xs text-slate-500">
-        CallGuide AI MVP &bull; Development Reference &bull; 48-Hour Build Window
+        CallGuide AI MVP &bull; Development Reference &bull; Phase 4.1
       </footer>
     </div>
   );

@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { CallSession, FinalOutcome } from "@/types";
 import { CANONICAL_OUTCOMES, STAGES_CONFIG } from "@/config/stages";
@@ -12,15 +11,15 @@ import {
   deleteCallById,
 } from "@/lib/call-storage";
 import { listCalls as apiListCalls } from "@/lib/api-client";
+import { StartCallModal } from "@/components/active-call/StartCallModal";
 
 export default function CallHistoryPage() {
-  const router = useRouter();
-
   const [calls, setCalls] = useState<CallSession[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [dataSource, setDataSource] = useState<"backend" | "local">("backend");
   const [backendError, setBackendError] = useState<string | null>(null);
   const [reloadTrigger, setReloadTrigger] = useState(0);
+  const [isStartModalOpen, setIsStartModalOpen] = useState(false);
 
   // Migration status (lazily checked from localStorage)
   const [migrationStatus, setMigrationStatus] = useState<{
@@ -81,8 +80,7 @@ export default function CallHistoryPage() {
   }, [searchQuery, selectedOutcome, selectedStage, reloadTrigger]);
 
   const handleStartNewCall = () => {
-    const newUUID = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `call_${Date.now()}`;
-    router.push(`/calls/${newUUID}`);
+    setIsStartModalOpen(true);
   };
 
   const handleRunMigration = async () => {
@@ -719,6 +717,12 @@ export default function CallHistoryPage() {
       <footer className="border-t border-slate-200 bg-white py-4 text-center text-xs text-slate-500">
         CallGuide AI MVP &bull; Phase 4 Backend + Supabase PostgreSQL Integration
       </footer>
+
+      {/* Start Call Dialog */}
+      <StartCallModal
+        isOpen={isStartModalOpen}
+        onClose={() => setIsStartModalOpen(false)}
+      />
     </div>
   );
 }

@@ -147,3 +147,15 @@ class CallListResponse(BaseModel):
     page: int
     page_size: int
     total_pages: int
+
+
+class ProspectSummary(BaseModel):
+    prospect_name: str
+    company_name: str
+    prospect_role: Optional[str] = None
+    phone_number: Optional[str] = None
+    last_call_id: UUID
+    last_called_at: datetime
+    total_calls: int = 1
+
+    model_config = ConfigDict(from_attributes=True)

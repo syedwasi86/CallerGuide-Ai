@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
@@ -8,6 +8,7 @@ from app.schemas.call import (
     CallCreate,
     CallListResponse,
     CallResponse,
+    ProspectSummary,
     StageResultResponse,
     StageResultUpdate,
 )
@@ -51,6 +52,20 @@ def list_calls(
         outcome=outcome,
         stage=stage,
     )
+
+
+@router.get(
+    "/prospects",
+    response_model=List[ProspectSummary],
+    summary="Get distinct previous prospects for call initiation",
+)
+def get_prospects(
+    search: Optional[str] = Query(None, description="Search prospect name, company, or phone"),
+    limit: int = Query(50, ge=1, le=100, description="Max prospects to return"),
+    service: CallService = Depends(get_call_service),
+) -> List[ProspectSummary]:
+    """Retrieves deduplicated previous prospects sorted by most recent contact date."""
+    return service.get_prospects(search=search, limit=limit)
 
 
 @router.get(

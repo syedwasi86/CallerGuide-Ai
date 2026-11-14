@@ -157,6 +157,7 @@ class MockTableQuery:
                     if term in str(r.get("prospect_name", "")).lower()
                     or term in str(r.get("company_name", "")).lower()
                     or term in str(r.get("prospect_role", "")).lower()
+                    or term in str(r.get("phone_number", "")).lower()
                 ]
 
         total_count = len(records)
@@ -551,8 +552,10 @@ def test_list_calls_and_filtering(test_client):
     assert data["page_size"] == 1
 
 
-def test_database_failure_handling():
+def test_database_failure_handling(monkeypatch):
     """Verify clean 503 is returned when database is completely unconfigured."""
+    import app.services.call_service as cs
+    monkeypatch.setattr(cs, "get_supabase_client", lambda: None)
     unconfigured_service = CallService(client=None)
     app.dependency_overrides[get_call_service] = lambda: unconfigured_service
     client = TestClient(app)
@@ -564,3 +567,105 @@ def test_database_failure_handling():
     assert res.status_code == 503
     assert "not configured" in res.json()["detail"].lower()
     app.dependency_overrides.clear()
+
+
+def test_get_prospects_deduplication(test_client):
+    """Verify distinct prospects endpoint returns deduplicated prospects with latest details."""
+    # Create Call 1 with Prospect A
+    test_client.post(
+        "/api/calls",
+        json={
+            "prospect_name": "Kavita Rao",
+            "company_name": "Solaris Energy",
+            "prospect_role": "Project Manager",
+            "phone_number": "+1-555-0101",
+        },
+    )
+
+    # Create Call 2 with Prospect A (same person, updated role/phone)
+    test_client.post(
+        "/api/calls",
+        json={
+            "prospect_name": "Kavita Rao",
+            "company_name": "Solaris Energy",
+            "prospect_role": "VP of Engineering",
+            "phone_number": "+1-555-0102",
+        },
+    )
+
+    # Create Call 3 with Prospect B
+    test_client.post(
+        "/api/calls",
+        json={
+            "prospect_name": "Rohan Mehra",
+            "company_name": "AgroTech Ltd",
+            "prospect_role": "Founder",
+            "phone_number": "+1-555-0202",
+        },
+    )
+
+    res = test_client.get("/api/calls/prospects")
+    assert res.status_code == 200
+    prospects = res.json()
+
+    # Total unique prospects should be 2, not 3
+    assert len(prospects) == 2
+
+    kavita = next(p for p in prospects if p["prospect_name"] == "Kavita Rao")
+    assert kavita["total_calls"] == 2
+    assert kavita["company_name"] == "Solaris Energy"
+    assert kavita["prospect_role"] == "VP of Engineering"
+
+
+def test_get_prospects_search(test_client):
+    """Verify prospects search by name, company, and phone number."""
+    test_client.post(
+        "/api/calls",
+        json={
+            "prospect_name": "Sunil Gavaskar",
+            "company_name": "Cricket Media",
+            "phone_number": "+91-9820011223",
+        },
+    )
+    test_client.post(
+        "/api/calls",
+        json={
+            "prospect_name": "Kapil Dev",
+            "company_name": "Fast bowling Academy",
+            "phone_number": "+91-9820099887",
+        },
+    )
+
+    # 1. Search by name
+    res_name = test_client.get("/api/calls/prospects?search=Sunil")
+    assert res_name.status_code == 200
+    assert len(res_name.json()) == 1
+    assert res_name.json()[0]["prospect_name"] == "Sunil Gavaskar"
+
+    # 2. Search by company
+    res_comp = test_client.get("/api/calls/prospects?search=bowling")
+    assert res_comp.status_code == 200
+    assert len(res_comp.json()) == 1
+    assert res_comp.json()[0]["prospect_name"] == "Kapil Dev"
+
+    # 3. Search by phone
+    res_phone = test_client.get("/api/calls/prospects?search=9820011223")
+    assert res_phone.status_code == 200
+    assert len(res_phone.json()) == 1
+    assert res_phone.json()[0]["prospect_name"] == "Sunil Gavaskar"
+
+
+def test_starting_second_call_creates_new_uuid(test_client):
+    """Verify selecting an existing prospect creates a brand new call with unique UUID."""
+    prospect_payload = {
+        "prospect_name": "Manish Pandey",
+        "company_name": "Logistics Express",
+        "prospect_role": "Head of Dispatch",
+        "phone_number": "+1-800-555-1212",
+    }
+    call_1 = test_client.post("/api/calls", json=prospect_payload).json()
+    call_2 = test_client.post("/api/calls", json=prospect_payload).json()
+
+    assert call_1["id"] != call_2["id"], "Each call must have a brand new distinct UUID!"
+    assert call_1["prospect_name"] == call_2["prospect_name"]
+    assert call_1["company_name"] == call_2["company_name"]

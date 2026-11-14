@@ -427,3 +427,66 @@ export function filterCallSessions(
     return true;
   });
 }
+
+/**
+ * Extract distinct prospects from locally stored calls (fallback when backend is offline).
+ * Deduplicates by normalized (prospectName, companyName) and retains latest contact info.
+ */
+export function getDistinctProspectsFromLocal(search?: string): Array<{
+  prospect_name: string;
+  company_name: string;
+  prospect_role: string | null;
+  phone_number: string | null;
+  last_call_id: string;
+  last_called_at: string;
+  total_calls: number;
+}> {
+  const localCalls = getStoredCalls();
+  const map = new Map<string, {
+    prospect_name: string;
+    company_name: string;
+    prospect_role: string | null;
+    phone_number: string | null;
+    last_call_id: string;
+    last_called_at: string;
+    total_calls: number;
+  }>();
+
+  for (const call of localCalls) {
+    const pName = (call.prospectName || "").trim();
+    const cName = (call.companyName || "").trim();
+    if (!pName || !cName) continue;
+
+    const key = `${pName.toLowerCase()}::${cName.toLowerCase()}`;
+    if (!map.has(key)) {
+      map.set(key, {
+        prospect_name: pName,
+        company_name: cName,
+        prospect_role: call.prospectRole || null,
+        phone_number: call.phoneNumber || null,
+        last_call_id: call.id,
+        last_called_at: call.startedAt || new Date().toISOString(),
+        total_calls: 1,
+      });
+    } else {
+      const existing = map.get(key)!;
+      existing.total_calls += 1;
+      if (!existing.phone_number && call.phoneNumber) existing.phone_number = call.phoneNumber;
+      if (!existing.prospect_role && call.prospectRole) existing.prospect_role = call.prospectRole;
+    }
+  }
+
+  let results = Array.from(map.values());
+
+  if (search && search.trim() !== "") {
+    const q = search.trim().toLowerCase();
+    results = results.filter((p) =>
+      p.prospect_name.toLowerCase().includes(q) ||
+      p.company_name.toLowerCase().includes(q) ||
+      (p.phone_number && p.phone_number.toLowerCase().includes(q)) ||
+      (p.prospect_role && p.prospect_role.toLowerCase().includes(q))
+    );
+  }
+
+  return results;
+}

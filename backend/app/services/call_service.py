@@ -13,6 +13,7 @@ from app.schemas.call import (
     CallCreate,
     CallListResponse,
     CallResponse,
+    ProspectSummary,
     StageResultResponse,
     StageResultUpdate,
 )
@@ -330,6 +331,64 @@ class CallService:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Database error listing calls: {str(e)}"
+            )
+
+    def get_prospects(self, search: Optional[str] = None, limit: int = 50) -> List[ProspectSummary]:
+        """
+        Retrieves distinct prospects across all recorded calls, deduplicated by prospect name and company,
+        returning the most recently used contact details (role, phone) and call timestamps.
+        """
+        limit = min(max(1, limit), 100)
+        try:
+            # Query calls ordered by started_at DESC so most recent call for each prospect comes first
+            query = self.client.table("calls").select(
+                "id, prospect_name, company_name, prospect_role, phone_number, started_at"
+            ).order("started_at", desc=True)
+
+            if search and search.strip():
+                term = search.strip()
+                query = query.or_(
+                    f"prospect_name.ilike.%{term}%,company_name.ilike.%{term}%,phone_number.ilike.%{term}%"
+                )
+
+            res = query.execute()
+            calls = res.data or []
+
+            # Deduplicate by normalized (prospect_name, company_name)
+            prospects_map: Dict[tuple, Dict[str, Any]] = {}
+            for c in calls:
+                p_name = (c.get("prospect_name") or "").strip()
+                c_name = (c.get("company_name") or "").strip()
+                if not p_name or not c_name:
+                    continue
+
+                key = (p_name.lower(), c_name.lower())
+                if key not in prospects_map:
+                    prospects_map[key] = {
+                        "prospect_name": p_name,
+                        "company_name": c_name,
+                        "prospect_role": c.get("prospect_role"),
+                        "phone_number": c.get("phone_number"),
+                        "last_call_id": c.get("id"),
+                        "last_called_at": c.get("started_at"),
+                        "total_calls": 1,
+                    }
+                else:
+                    prospects_map[key]["total_calls"] += 1
+                    # If earlier call had phone_number or role and most recent didn't, fill it in if missing
+                    if not prospects_map[key]["phone_number"] and c.get("phone_number"):
+                        prospects_map[key]["phone_number"] = c.get("phone_number")
+                    if not prospects_map[key]["prospect_role"] and c.get("prospect_role"):
+                        prospects_map[key]["prospect_role"] = c.get("prospect_role")
+
+            result = [ProspectSummary.model_validate(p) for p in prospects_map.values()]
+            return result[:limit]
+        except Exception as e:
+            if isinstance(e, HTTPException):
+                raise e
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Database error fetching prospects: {str(e)}"
             )
 
 

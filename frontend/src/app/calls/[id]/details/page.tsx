@@ -7,6 +7,7 @@ import { CallSession, StageNumber } from "@/types";
 import { STAGES_CONFIG, CANONICAL_OUTCOMES } from "@/config/stages";
 import { getCallById, deleteCallById } from "@/lib/call-storage";
 import { getCall as apiGetCall } from "@/lib/api-client";
+import { StartCallModal } from "@/components/active-call/StartCallModal";
 
 function CallDetailContent() {
   const params = useParams();
@@ -16,6 +17,7 @@ function CallDetailContent() {
   const [call, setCall] = useState<CallSession | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [dataSource, setDataSource] = useState<"backend" | "local">("backend");
+  const [isStartModalOpen, setIsStartModalOpen] = useState(false);
 
   useEffect(() => {
     let isCancelled = false;
@@ -64,8 +66,7 @@ function CallDetailContent() {
   };
 
   const handleStartAnotherCall = () => {
-    const newUUID = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `call_${Date.now()}`;
-    router.push(`/calls/${newUUID}`);
+    setIsStartModalOpen(true);
   };
 
   const formatDate = (isoString?: string) => {
@@ -129,12 +130,13 @@ function CallDetailContent() {
               >
                 Return to Call History
               </Link>
-              <Link
-                href="/calls/demo-call-1"
-                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              <button
+                type="button"
+                onClick={() => setIsStartModalOpen(true)}
+                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition cursor-pointer"
               >
-                Launch Demo Call
-              </Link>
+                + Start New Call
+              </button>
             </div>
           </div>
         </main>
@@ -434,6 +436,11 @@ function CallDetailContent() {
           </button>
         </div>
       </main>
+
+      <StartCallModal
+        isOpen={isStartModalOpen}
+        onClose={() => setIsStartModalOpen(false)}
+      />
     </div>
   );
 }

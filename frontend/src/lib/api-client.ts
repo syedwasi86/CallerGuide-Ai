@@ -41,6 +41,16 @@ export interface BackendCallListResponse {
   total_pages: number;
 }
 
+export interface ProspectSummary {
+  prospect_name: string;
+  company_name: string;
+  prospect_role: string | null;
+  phone_number: string | null;
+  last_call_id: string;
+  last_called_at: string;
+  total_calls: number;
+}
+
 export function getApiBaseUrl(): string {
   if (typeof window !== "undefined" && process.env.NEXT_PUBLIC_API_BASE_URL) {
     return process.env.NEXT_PUBLIC_API_BASE_URL.replace(/\/+$/, "");
@@ -267,4 +277,11 @@ export async function listCalls(params: {
     pageSize: res.page_size,
     totalPages: res.total_pages,
   };
+}
+
+export async function getPreviousProspects(search?: string): Promise<ProspectSummary[]> {
+  const query = new URLSearchParams();
+  if (search && search.trim()) query.set("search", search.trim());
+  const qs = query.toString() ? `?${query.toString()}` : "";
+  return apiFetch<ProspectSummary[]>(`/api/calls/prospects${qs}`);
 }

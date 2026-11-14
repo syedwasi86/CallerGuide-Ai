@@ -7,6 +7,7 @@ interface CallHeaderProps {
   prospectName: string;
   companyName: string;
   prospectRole?: string;
+  phoneNumber?: string;
   durationSeconds: number;
   isCompleted: boolean;
   onEndCallClick: () => void;
@@ -16,6 +17,7 @@ export function CallHeader({
   prospectName,
   companyName,
   prospectRole,
+  phoneNumber,
   durationSeconds,
   isCompleted,
   onEndCallClick,
@@ -53,17 +55,21 @@ export function CallHeader({
 
           {/* Prospect Meta */}
           <div className="flex flex-col">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-base font-bold text-slate-900 sm:text-lg">
-                {prospectName}
+                {prospectName || "Call Session"}
               </h1>
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
-                {companyName}
-              </span>
+              {companyName && (
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600 font-medium">
+                  {companyName}
+                </span>
+              )}
             </div>
-            {prospectRole && (
-              <span className="text-xs text-slate-500">{prospectRole}</span>
-            )}
+            <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
+              {prospectRole && <span>{prospectRole}</span>}
+              {prospectRole && phoneNumber && <span>•</span>}
+              {phoneNumber && <span className="font-mono text-slate-600">📞 {phoneNumber}</span>}
+            </div>
           </div>
         </div>
 

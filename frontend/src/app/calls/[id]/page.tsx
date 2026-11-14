@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, Suspense } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import { FinalOutcome, StageData, StageNumber, CallSession } from "@/types";
 import { STAGES_CONFIG, CANONICAL_OUTCOMES } from "@/config/stages";
@@ -9,6 +9,7 @@ import { CallHeader } from "@/components/active-call/CallHeader";
 import { StageStepper } from "@/components/active-call/StageStepper";
 import { StageCard } from "@/components/active-call/StageCard";
 import { EndCallModal } from "@/components/active-call/EndCallModal";
+import { StartCallModal } from "@/components/active-call/StartCallModal";
 import {
   saveCompletedCall,
   getCallById,
@@ -23,17 +24,26 @@ import {
 } from "@/lib/api-client";
 
 function ActiveCallContent() {
+  void apiCreateCall;
   const params = useParams();
-  const router = useRouter();
-  const rawParamId = (params?.id as string) || "demo-call-1";
+  const rawParamId = (params?.id as string) || "";
 
-  // Demo Prospect Metadata
-  const prospectName = "Rahul Sharma";
-  const companyName = "Apex Industrial Solutions";
-  const prospectRole = "VP of Operations";
+  // Prospect Metadata (dynamically loaded from call record)
+  const [prospectName, setProspectName] = useState<string>("");
+  const [companyName, setCompanyName] = useState<string>("");
+  const [prospectRole, setProspectRole] = useState<string>("");
+  const [phoneNumber, setPhoneNumber] = useState<string>("");
+
+  // Call session status
+  const [callFound, setCallFound] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
   // Active call ID (state in case auto-generated UUID changes from param)
   const [callId, setCallId] = useState<string>(rawParamId);
+
+  // Modal controls
+  const [isStartModalOpen, setIsStartModalOpen] = useState(false);
+  const [isEndModalOpen, setIsEndModalOpen] = useState(false);
 
   // Sync and connection status
   const [syncStatus, setSyncStatus] = useState<"synced" | "saving" | "error" | "offline">("synced");
@@ -47,7 +57,6 @@ function ActiveCallContent() {
   const [furthestStageReached, setFurthestStageReached] = useState<StageNumber>(1);
   const [status, setStatus] = useState<"in_progress" | "completed">("in_progress");
   const [durationSeconds, setDurationSeconds] = useState(0);
-  const [isEndModalOpen, setIsEndModalOpen] = useState(false);
   const [finalOutcome, setFinalOutcome] = useState<FinalOutcome | null>(null);
   const [nextStepNotes, setNextStepNotes] = useState<string>("");
 
@@ -67,11 +76,13 @@ function ActiveCallContent() {
   const isValidUUID = (str: string) =>
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str);
 
-  // 1. Initial Load: Fetch or create call in backend
+  // 1. Initial Load: Fetch existing call from backend or local storage
   useEffect(() => {
     let isCancelled = false;
 
     async function initCall() {
+      setIsLoading(true);
+
       // If valid UUID, attempt to fetch from backend
       if (isValidUUID(rawParamId)) {
         try {
@@ -79,6 +90,10 @@ function ActiveCallContent() {
           if (isCancelled) return;
 
           setCallId(backendCall.id);
+          setProspectName(backendCall.prospectName);
+          setCompanyName(backendCall.companyName);
+          setProspectRole(backendCall.prospectRole || "");
+          setPhoneNumber(backendCall.phoneNumber || "");
           setStatus(backendCall.status);
           setCurrentStage(backendCall.currentStage);
           setFurthestStageReached(backendCall.furthestStageReached);
@@ -96,50 +111,38 @@ function ActiveCallContent() {
             clearActiveCallReference();
           }
           setSyncStatus("synced");
+          setCallFound(true);
+          setIsLoading(false);
           return;
         } catch {
-          // Fall through to creation if not found
+          // Fall through to local check
         }
       }
 
-      // Check localStorage for offline demo data
+      // Check localStorage for offline / seeded demo data
       const local = getCallById(rawParamId);
-      if (local && local.status === "completed") {
-        setStatus("completed");
+      if (local) {
+        setCallId(local.id);
+        setProspectName(local.prospectName);
+        setCompanyName(local.companyName);
+        setProspectRole(local.prospectRole || "");
+        setPhoneNumber(local.phoneNumber || "");
+        setStatus(local.status);
         setCurrentStage(local.currentStage);
         setFurthestStageReached(local.furthestStageReached);
-        setDurationSeconds(local.durationSeconds);
+        setDurationSeconds(local.durationSeconds || 0);
         setFinalOutcome(local.finalOutcome || null);
         setNextStepNotes(local.nextStepNotes || "");
         if (local.stageResults) setStageResults(local.stageResults);
+        setCallFound(true);
+        setIsLoading(false);
         return;
       }
 
-      // Create new call on FastAPI backend
-      try {
-        setSyncStatus("saving");
-        const newCall = await apiCreateCall({
-          prospectName,
-          companyName,
-          prospectRole,
-          id: isValidUUID(rawParamId) ? rawParamId : undefined,
-        });
-
-        if (isCancelled) return;
-        setCallId(newCall.id);
-        setActiveCallReference(newCall.id);
-        setSyncStatus("synced");
-
-        // If URL had a non-UUID parameter (e.g. demo-call-1), update browser URL without full reload
-        if (rawParamId !== newCall.id && typeof window !== "undefined") {
-          window.history.replaceState(null, "", `/calls/${newCall.id}`);
-        }
-      } catch (err: unknown) {
-        if (isCancelled) return;
-        const msg = (err as Error)?.message || "FastAPI backend is offline or waking up. Local demo mode active.";
-        console.warn("Backend unavailable; running in offline demo mode:", msg);
-        setSyncStatus("offline");
-        setErrorMessage(msg);
+      // If not found in backend or local storage, do NOT invent demo caller details
+      if (!isCancelled) {
+        setCallFound(false);
+        setIsLoading(false);
       }
     }
 
@@ -289,6 +292,7 @@ function ActiveCallContent() {
       prospectName,
       companyName,
       prospectRole,
+      phoneNumber: phoneNumber || undefined,
       status: "completed",
       currentStage,
       furthestStageReached,
@@ -309,9 +313,7 @@ function ActiveCallContent() {
   };
 
   const handleStartFreshCall = () => {
-    clearActiveCallReference();
-    const newUUID = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `call_${Date.now()}`;
-    router.push(`/calls/${newUUID}`);
+    setIsStartModalOpen(true);
   };
 
   const currentStageConfig = STAGES_CONFIG[currentStage];
@@ -320,6 +322,67 @@ function ActiveCallContent() {
 
   const selectedOutcomeMeta = CANONICAL_OUTCOMES.find((o) => o.value === finalOutcome);
 
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50">
+        <div className="flex items-center gap-2 text-sm text-slate-500 font-medium">
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent"></span>
+          Loading call session...
+        </div>
+      </div>
+    );
+  }
+
+  if (!callFound) {
+    return (
+      <div className="flex min-h-screen flex-col bg-slate-50">
+        <header className="border-b border-slate-200 bg-white">
+          <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
+            <Link href="/calls" className="text-sm font-semibold text-indigo-600 hover:text-indigo-700">
+              &larr; Back to Call History
+            </Link>
+          </div>
+        </header>
+
+        <main className="mx-auto flex w-full max-w-xl flex-1 flex-col items-center justify-center px-6 py-16 text-center">
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 shadow-xs w-full">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-indigo-50 text-indigo-600">
+              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+              </svg>
+            </div>
+            <h1 className="mt-4 text-xl font-bold text-slate-900">
+              Call Session Not Found
+            </h1>
+            <p className="mt-2 text-xs text-slate-500 max-w-sm mx-auto">
+              No active call was found for ID <code className="font-mono text-slate-700">{callId}</code>. In CallGuide AI, all calls must be started by confirming prospect details.
+            </p>
+            <div className="mt-6 flex items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => setIsStartModalOpen(true)}
+                className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-indigo-700 transition cursor-pointer"
+              >
+                + Start Call with Prospect
+              </button>
+              <Link
+                href="/calls"
+                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition"
+              >
+                View Call History
+              </Link>
+            </div>
+          </div>
+        </main>
+
+        <StartCallModal
+          isOpen={isStartModalOpen}
+          onClose={() => setIsStartModalOpen(false)}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-screen flex-col bg-slate-50">
       {/* 1. Header */}
@@ -327,6 +390,7 @@ function ActiveCallContent() {
         prospectName={prospectName}
         companyName={companyName}
         prospectRole={prospectRole}
+        phoneNumber={phoneNumber}
         durationSeconds={durationSeconds}
         isCompleted={isCompleted}
         onEndCallClick={() => setIsEndModalOpen(true)}
@@ -631,6 +695,12 @@ function ActiveCallContent() {
         companyName={companyName}
         furthestStageReached={furthestStageReached}
         currentDurationSeconds={durationSeconds}
+      />
+
+      {/* 5. Start New Call Modal */}
+      <StartCallModal
+        isOpen={isStartModalOpen}
+        onClose={() => setIsStartModalOpen(false)}
       />
     </div>
   );
