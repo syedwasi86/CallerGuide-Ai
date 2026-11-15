@@ -258,38 +258,52 @@ CallGuide AI integrates Google Gemini and Groq without heavy external SDKs by us
 6. **Ethical Guardrail:** If the prospect asks not to be called (`selected_outcome == "do_not_call"` or verbatim text signals a request to stop contact), the system short-circuits LLM generation and outputs an immediate respectful departure statement (`provider: "guardrail"`).
 
 ---
+## 8. Live Deployment & Submission Links
 
-## 8. Deployment Guidance
+### 8.1 Live Application — Vercel
 
-### 8.1 Backend on Render (Web Service)
+**Production Frontend:**  
+https://caller-guide-ai-flax.vercel.app/
 
-1. Connect your repository to [Render](https://render.com).
-2. Create a new **Web Service**:
-   * **Root Directory:** `backend`
-   * **Runtime:** `Python 3`
-   * **Build Command:** `pip install -r requirements.txt`
-   * **Start Command:** `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-3. Configure Environment Variables in Render Dashboard:
-   * `SUPABASE_URL`: Supabase project URL
-   * `SUPABASE_SERVICE_ROLE_KEY`: Supabase service-role secret key
-   * `FRONTEND_ORIGIN`: `https://your-app.vercel.app`
-   * `ENVIRONMENT`: `production`
-   * `LLM_PROVIDER`: `gemini` (or `groq`)
-   * `LLM_API_KEY`: Your Gemini API key
-   * `LLM_MODEL`: `gemini-3.5-flash-lite`
-4. Render monitors health at `/health`.
+The live application provides the eight-stage cold-call companion, prospect selection, AI-assisted conversational guidance, stage-level result capture, and call history.
 
-### 8.2 Frontend on Vercel
+### 8.2 Backend API — Render
 
-1. Import your repository into [Vercel](https://vercel.com).
-2. Set configuration:
-   * **Root Directory:** `frontend`
-   * **Framework Preset:** `Next.js`
-   * **Node.js Version:** `22.x` (or `20.x`)
-   * **Build Command:** `next build --webpack`
-3. Configure Environment Variable in Vercel Dashboard:
-   * `NEXT_PUBLIC_API_BASE_URL`: `https://your-backend-app.onrender.com`
-4. Deploy.
+**Production Backend:**  
+https://callerguide-ai.onrender.com
+
+**Health Check:**  
+https://callerguide-ai.onrender.com/health
+
+The FastAPI backend handles call lifecycle management, prospect data, stage results, AI suggestions, and PostgreSQL persistence through Supabase.
+
+### 8.3 Database — Supabase PostgreSQL
+
+The database schema and migration are included in the public repository:
+
+`backend/supabase/migrations/001_initial_schema.sql`
+
+The migration defines the `calls` and `call_stage_results` tables, relationships, indexes, triggers, and Row Level Security policies.
+
+### 8.4 LLM Integration
+
+**Production LLM Provider:** Google Gemini  
+**Model:** `gemini-3.5-flash-lite`
+
+The LLM is used to generate contextual, concise, conversational suggestions based on the current call stage, selected stage outcome, and prospect's recorded words.
+
+The application also supports Groq (`openai/gpt-oss-20b`) as an alternative provider.
+
+A transcript-grounded rule-based fallback handles unavailable, unconfigured, or timed-out LLM requests to keep the call workflow usable.
+
+### 8.5 Deployment Architecture
+
+| Component | Technology | Hosting |
+|---|---|---|
+| Frontend | Next.js, React, TypeScript, Tailwind CSS | Vercel |
+| Backend | FastAPI, Python | Render |
+| Database | PostgreSQL | Supabase |
+| AI suggestions | Google Gemini / Groq | External API |
 
 ---
 
