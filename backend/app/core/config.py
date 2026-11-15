@@ -18,8 +18,13 @@ class Settings(BaseSettings):
     frontend_origin: str = ""
 
     # LLM Provider Configuration
+    llm_provider: str = "gemini"  # "gemini" or "groq"
     llm_api_key: str = ""
-    llm_model: str = "gemini-2.5-flash"
+    llm_model: str = "gemini-3.5-flash-lite"
+
+    # Groq Configuration
+    groq_api_key: str = ""
+    groq_model: str = "openai/gpt-oss-20b"
 
     # LLM Timeout Configuration (in seconds)
     llm_connect_timeout_seconds: float = 5.0

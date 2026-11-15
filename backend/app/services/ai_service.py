@@ -7,6 +7,7 @@ import httpx
 
 from app.core.config import settings
 from app.schemas.ai import SuggestionRequest, SuggestionResponse
+from app.services.providers import BaseLlmProvider, GeminiProvider, GroqProvider
 
 logger = logging.getLogger(__name__)
 
@@ -31,14 +32,46 @@ DO_NOT_CALL_KEYWORDS = [
 class AiService:
     """
     AI Response Suggestion Service.
-    Generates contextual spoken-sentence guidance for callers using Google Gemini
-    with configurable HTTP timeouts, controlled single retry for transient failures,
-    ethical guardrails, and intelligent transcript-backed rule engine fallbacks.
+    Generates contextual spoken-sentence guidance for callers using configured LLM providers
+    (Google Gemini or Groq) with configurable HTTP timeouts, connection pooling, controlled single retry
+    for transient failures, privacy-preserving prompts, ethical guardrails, and transcript-backed rule engine fallbacks.
     """
 
-    def __init__(self):
-        self.api_key = settings.llm_api_key.strip() if settings.llm_api_key else ""
-        self.model = settings.llm_model.strip() if settings.llm_model else "gemini-2.5-flash"
+    def __init__(self, provider: Optional[BaseLlmProvider] = None):
+        if provider:
+            self.provider = provider
+        else:
+            provider_type = (settings.llm_provider or "gemini").lower().strip()
+            if provider_type == "groq":
+                self.provider = GroqProvider(
+                    api_key=settings.groq_api_key or settings.llm_api_key,
+                    model=settings.groq_model or settings.llm_model,
+                )
+            else:
+                self.provider = GeminiProvider(
+                    api_key=settings.llm_api_key,
+                    model=settings.llm_model,
+                )
+
+    @property
+    def api_key(self) -> str:
+        return self.provider.api_key
+
+    @api_key.setter
+    def api_key(self, value: str):
+        self.provider.api_key = value
+
+    @property
+    def model(self) -> str:
+        return self.provider.model
+
+    @model.setter
+    def model(self, value: str):
+        self.provider.model = value
+
+    @property
+    def provider_name(self) -> str:
+        return self.provider.provider_name
 
     def _get_httpx_timeout(self) -> httpx.Timeout:
         """Constructs HTTPX timeout from configured application settings."""
@@ -60,7 +93,7 @@ class AiService:
     async def generate_suggestion(self, payload: SuggestionRequest) -> SuggestionResponse:
         """
         Generates contextual call response guidance based on stage, outcome, and prospect words.
-        Strictly prioritizes ethical guardrails, then live Gemini with retry, then transcript fallback.
+        Strictly prioritizes ethical guardrails, then live provider (Gemini/Groq) with retry, then transcript fallback.
         """
         # 1. Guardrail: If prospect requested no contact, strictly enforce respectful exit
         if self._is_do_not_call(payload):
@@ -83,13 +116,13 @@ class AiService:
                 fallback_reason=None,
             )
 
-        # 2. Attempt live Gemini generation if API key is configured
+        # 2. Attempt live provider generation if API key is configured
         fallback_reason: Optional[str] = None
-        if self.api_key:
+        if self.provider.api_key:
             llm_response, reason = await self._execute_gemini_request(payload)
             if llm_response:
                 return llm_response
-            fallback_reason = reason or "Gemini API unavailable"
+            fallback_reason = reason or f"{self.provider.provider_name.capitalize()} API unavailable"
         else:
             fallback_reason = "No LLM API key configured"
 
@@ -100,198 +133,55 @@ class AiService:
         self, payload: SuggestionRequest
     ) -> Tuple[Optional[SuggestionResponse], Optional[str]]:
         """
-        Calls Google Gemini REST API with configurable timeouts and at most ONE retry for transient errors.
-        Never logs credentials or full API keys.
+        Delegates prompt execution to the active provider with configurable timeouts and retries.
         """
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent"
-        headers = {
-            "x-goog-api-key": self.api_key,
-            "Content-Type": "application/json",
-        }
-        body = {
-            "contents": [
-                {
-                    "parts": [
-                        {"text": self._build_prompt(payload)}
-                    ]
-                }
-            ],
-            "generationConfig": {
-                "temperature": 0.4,
-                "topP": 0.9,
-                "maxOutputTokens": 300,
-                "responseMimeType": "application/json",
-            },
-        }
-
+        prompt = self._build_prompt(payload)
         timeout = self._get_httpx_timeout()
-        max_attempts = 2  # 1 initial call + at most 1 retry for transient issues
-        last_error_reason = "Unknown error"
-
-        for attempt in range(1, max_attempts + 1):
-            start_time = time.perf_counter()
-            try:
-                async with httpx.AsyncClient(timeout=timeout) as client:
-                    resp = await client.post(url, json=body, headers=headers)
-                    elapsed = time.perf_counter() - start_time
-
-                    if resp.status_code == 200:
-                        parsed = self._parse_gemini_response(resp, payload.stage_number)
-                        if parsed:
-                            logger.info(
-                                f"Gemini API request succeeded (attempt: {attempt}, elapsed: {elapsed:.2f}s)"
-                            )
-                            return parsed, None
-                        else:
-                            last_error_reason = f"Unexpected response structure from Gemini API (elapsed: {elapsed:.2f}s)"
-                            logger.warning(
-                                f"Unexpected response structure from Gemini API (attempt: {attempt}, elapsed: {elapsed:.2f}s)"
-                            )
-                            # Do not retry unparseable responses
-                            break
-
-                    status = resp.status_code
-                    # Non-retriable client / auth errors
-                    if status in (401, 403) or (status == 400 and "API_KEY_INVALID" in resp.text):
-                        last_error_reason = f"Authentication failure (HTTP {status})"
-                        logger.error(
-                            f"Gemini API authentication failed (HTTP {status}, elapsed: {elapsed:.2f}s). Not retrying."
-                        )
-                        break
-
-                    if status == 404:
-                        last_error_reason = f"Model '{self.model}' not found (HTTP 404)"
-                        logger.error(
-                            f"Gemini API model '{self.model}' not found (HTTP 404, elapsed: {elapsed:.2f}s). Not retrying."
-                        )
-                        break
-
-                    if 400 <= status < 500 and status != 429:
-                        last_error_reason = f"Client request error (HTTP {status})"
-                        logger.error(
-                            f"Gemini API client request error (HTTP {status}, elapsed: {elapsed:.2f}s). Not retrying."
-                        )
-                        break
-
-                    # Retriable transient errors: HTTP 429 (Rate limit) or HTTP 5xx (Server error)
-                    if status == 429:
-                        last_error_reason = f"Rate limit exceeded (HTTP 429, elapsed: {elapsed:.2f}s)"
-                        logger.warning(
-                            f"Gemini API rate limited (attempt: {attempt}, elapsed: {elapsed:.2f}s)"
-                        )
-                    elif status >= 500:
-                        last_error_reason = f"Provider server error (HTTP {status}, elapsed: {elapsed:.2f}s)"
-                        logger.warning(
-                            f"Gemini API provider server error (HTTP {status}, attempt: {attempt}, elapsed: {elapsed:.2f}s)"
-                        )
-
-                    if attempt < max_attempts:
-                        logger.info("Retrying Gemini API request once for transient error...")
-                        await asyncio.sleep(1.0)
-                        continue
-                    else:
-                        break
-
-            except httpx.ConnectTimeout:
-                elapsed = time.perf_counter() - start_time
-                last_error_reason = (
-                    f"Connection timeout after {settings.llm_connect_timeout_seconds}s"
-                )
-                logger.warning(
-                    f"Gemini API connection timed out (attempt: {attempt}, elapsed: {elapsed:.2f}s)"
-                )
-                if attempt < max_attempts:
-                    logger.info("Retrying Gemini API request once for connection timeout...")
-                    await asyncio.sleep(0.5)
-                    continue
-                break
-
-            except (httpx.ConnectError, httpx.NetworkError) as e:
-                elapsed = time.perf_counter() - start_time
-                last_error_reason = f"Connection failure: {e.__class__.__name__}"
-                logger.warning(
-                    f"Gemini API network connection failure (attempt: {attempt}, elapsed: {elapsed:.2f}s): {e.__class__.__name__}"
-                )
-                if attempt < max_attempts:
-                    logger.info("Retrying Gemini API request once for connection failure...")
-                    await asyncio.sleep(0.5)
-                    continue
-                break
-
-            except httpx.ReadTimeout:
-                elapsed = time.perf_counter() - start_time
-                last_error_reason = (
-                    f"Response read timeout after {settings.llm_read_timeout_seconds}s"
-                )
-                logger.warning(
-                    f"Gemini API read timed out after {settings.llm_read_timeout_seconds}s (elapsed: {elapsed:.2f}s). Not retrying to avoid caller delay."
-                )
-                # Do NOT retry read timeout; live calls cannot tolerate an additional 20s delay
-                break
-
-            except Exception as e:
-                elapsed = time.perf_counter() - start_time
-                last_error_reason = f"Unexpected error: {e.__class__.__name__}"
-                logger.error(
-                    f"Gemini API unexpected error (attempt: {attempt}, elapsed: {elapsed:.2f}s): {e.__class__.__name__}"
-                )
-                break
-
-        return None, last_error_reason
+        resp, reason, metrics = await self.provider.generate(
+            prompt=prompt,
+            stage_number=payload.stage_number,
+            timeout=timeout,
+        )
+        return resp, reason
 
     def _parse_gemini_response(
         self, resp: httpx.Response, stage_number: int
     ) -> Optional[SuggestionResponse]:
-        """Parses Gemini JSON candidate text into SuggestionResponse model."""
+        """Backward-compatible response parser."""
         try:
             data = resp.json()
             candidates = data.get("candidates", [])
-            if not candidates:
-                return None
-
-            parts = candidates[0].get("content", {}).get("parts", [])
-            if not parts:
-                return None
-
-            raw_text = parts[0].get("text", "").strip()
-            if not raw_text:
-                return None
-
-            try:
-                parsed = json.loads(raw_text)
-            except Exception:
-                clean = raw_text.replace("```json", "").replace("```", "").strip()
-                parsed = json.loads(clean)
-
-            suggestion = parsed.get("suggestion", "").strip()
-            if not suggestion:
-                return None
-
-            return SuggestionResponse(
-                suggestion=suggestion,
-                stage_number=stage_number,
-                alternative=parsed.get("alternative", "").strip() or None,
-                rationale=parsed.get("rationale", "").strip() or None,
-                is_fallback=False,
-                provider="gemini",
-                fallback_reason=None,
-            )
+            if candidates:
+                parts = candidates[0].get("content", {}).get("parts", [])
+                if parts:
+                    raw_text = parts[0].get("text", "")
+                    return self.provider._parse_json_payload(raw_text, stage_number)
+            choices = data.get("choices", [])
+            if choices:
+                raw_text = choices[0].get("message", {}).get("content", "")
+                return self.provider._parse_json_payload(raw_text, stage_number)
+            return None
         except Exception:
             return None
 
     def _build_prompt(self, payload: SuggestionRequest) -> str:
-        prospect = payload.prospect_name or "the prospect"
-        company = payload.company_name or "their company"
-        words = payload.prospect_words or "[No words entered yet]"
+        """
+        Builds a privacy-preserving cold-calling coaching prompt.
+        Strictly omits prospect names, company names, and phone numbers.
+        Sends only call stage, goal, selected outcome, and prospect's verbatim words.
+        """
+        stage_num = payload.stage_number
+        stage_title = payload.stage_name or f"Stage {stage_num}"
+        stage_goal = payload.stage_purpose or "Cold call progression"
         outcome = payload.selected_outcome or "[None]"
+        words = payload.prospect_words or "[No words entered yet]"
 
         return f"""You are an elite, respectful B2B cold-calling coach assisting an outbound caller in real time.
-The caller is speaking with {prospect} at {company}.
 
 Current Call Context:
-- Stage Number: {payload.stage_number}
-- Stage Name: {payload.stage_name or 'Current Stage'}
-- Stage Purpose: {payload.stage_purpose or 'Cold call progression'}
+- Stage Number: {stage_num}
+- Stage Name: {stage_title}
+- Stage Purpose: {stage_goal}
 - Selected Stage Outcome: {outcome}
 - Prospect's Verbatim Words: "{words}"
 
@@ -306,9 +196,9 @@ CRITICAL RULES:
 
 Return ONLY a JSON object with this exact structure:
 {{
-  "suggestion": "Primary 1-2 spoken sentences for caller",
-  "alternative": "One alternative phrasing or angle",
-  "rationale": "One brief sentence explaining why this works"
+  "suggestion": "One or two natural spoken sentences",
+  "alternative": "One concise alternative",
+  "rationale": "One brief sentence"
 }}"""
 
     def _generate_transcript_fallback(
@@ -358,85 +248,67 @@ Return ONLY a JSON object with this exact structure:
         elif stage == 3:  # Permission
             if any(w in words for w in ["meeting", "busy", "call later", "driving", "customer"]) or outcome == "not_available_now":
                 suggestion = (
-                    "I completely understand you're busy right now. When would be a convenient 5-minute window "
-                    "to reconnect—perhaps later this afternoon or tomorrow morning?"
+                    f"I completely understand, {prospect}. What is the best day or time later this week "
+                    f"for a quick 2-minute conversation?"
                 )
-                alt = "No problem at all. I can call you back at 2:30 PM, or would tomorrow morning suit you better?"
-                rationale = "Respects immediate time pressure and proposes two concrete callback windows."
-            elif any(w in words for w in ["whatsapp", "email", "mail"]) or outcome == "information_requested_first":
-                suggestion = (
-                    f"I would be glad to send a brief overview on WhatsApp. To ensure it's directly relevant to {company}, "
-                    f"may I ask which operational area is your highest priority right now?"
-                )
-                alt = "Certainly, I'll send that across right away. What is the best WhatsApp number to reach you on?"
-                rationale = "Honors the document request while qualifying operational relevance."
-            else:
-                suggestion = "Thank you. I'll keep this very brief—just two quick questions about your current operational focus."
-                alt = "Appreciate the minute. We'll stick strictly to two minutes."
-                rationale = "Reassures the prospect that the call will be concise and focused."
-
-        elif stage == 4:  # Their business
-            if "wrong_person" in outcome or any(w in words for w in ["not relevant", "wrong person", "not my role"]):
-                suggestion = (
-                    f"Thank you for clarifying. Who on the team at {company} oversees operational strategy or manufacturing capacity?"
-                )
-                alt = "Understood. Could you point me to the person who handles plant operations and production planning?"
-                rationale = "Gracefully pivots to obtain the correct departmental contact."
+                alt = f"No problem at all. Would Thursday morning around 11 AM work better for you?"
+                rationale = "Respects immediate time constraints and pivots to scheduling a concrete follow-up."
             else:
                 suggestion = (
-                    f"Understood. How does {company} currently handle capacity planning and supplier lead times across your plants?"
+                    f"I know you weren't expecting my call. Do you have 90 seconds for me to share "
+                    f"why we reached out, and you can tell me if it's relevant?"
                 )
-                alt = f"As you oversee operations at {company}, what is the main production or distribution focus this quarter?"
-                rationale = "Asks an open-ended operational question grounded in manufacturing context."
+                alt = "I'll be very brief—just 60 seconds to explain our focus, and you decide if it makes sense to continue."
+                rationale = "Uses standard permission-based opener from transcript benchmark."
 
-        elif stage == 5:  # Their need in their words
-            if "no_current_need" in outcome or any(w in words for w in ["no need", "everything fine", "internal", "no requirement"]):
+        elif stage == 4:  # Exploration
+            suggestion = (
+                f"From your perspective at {company}, what is the single biggest bottleneck "
+                f"affecting throughput or fulfillment this quarter?"
+            )
+            alt = f"How are you currently handling capacity planning across your production lines at {company}?"
+            rationale = "Opens diagnostic dialogue centered on the prospect's operational realities."
+
+        elif stage == 5:  # Problem Identification
+            suggestion = (
+                f"When delays or capacity friction occur in that area, how does that typically "
+                f"impact your delivery commitments and customer timelines?"
+            )
+            alt = "How much operational downtime or overtime does that issue typically create each month?"
+            rationale = "Quantifies operational friction without assuming the solution."
+
+        elif stage == 6:  # Objection Handling
+            if any(w in words for w in ["internal team", "in house", "own team", "already have"]) or outcome == "existing_provider_or_team":
                 suggestion = (
-                    "That's great to hear operations are running smoothly. As you plan for future growth, "
-                    "are there any capacity or margin targets your leadership team is looking to unlock?"
+                    f"That makes complete sense—most established firms like {company} have strong internal teams. "
+                    f"We don't replace internal capabilities; we provide an external benchmark on market bottlenecks. "
+                    f"Would a short 2-page brief be useful to see?"
                 )
-                alt = "Understood. When your team evaluates upcoming quarters, what is the single biggest growth hurdle?"
-                rationale = "Explores latent objectives without invalidating their current satisfaction."
+                alt = "Understood. Many leaders we work with have great internal teams and use our research purely as a quarterly reference."
+                rationale = "Validates the existing capability rather than competing, lowering friction."
+            elif any(w in words for w in ["send email", "email me", "send info", "send details"]) or outcome == "send_information":
+                suggestion = (
+                    f"I'd be glad to send that over, {prospect}. So I send only the relevant 1-page executive summary, "
+                    f"what is the main operational challenge leadership is evaluating right now?"
+                )
+                alt = f"Happy to email it across. What specific operational topic should I emphasize for {company}?"
+                rationale = "Qualifies the email request to ensure purposeful follow-up rather than brush-off."
+            elif any(w in words for w in ["not interested", "no need", "we are fine"]) or outcome == "not_interested":
+                suggestion = (
+                    f"I appreciate your directness, {prospect}. Before I let you go, is there any operational priority "
+                    f"on your radar for next year, or is the team completely set?"
+                )
+                alt = "Fair enough. May I send a one-page overview to your email for future reference?"
+                rationale = "Gracefully acknowledges disinterest while testing for long-term timing fit."
             else:
                 suggestion = (
-                    "You highlighted a key bottleneck. That's a challenge we frequently see with scaling teams. "
-                    "How has that been impacting your delivery timelines?"
+                    f"I completely understand where you're coming from, {prospect}. Many executives at {company} "
+                    f"shared that exact concern before reviewing our benchmark data."
                 )
-                alt = "That's very helpful context. What internal steps has the team taken so far to address that?"
-                rationale = "Validates the prospect's exact words and prompts deeper exploration."
+                alt = "That is a very reasonable concern. May I share how peer manufacturers resolved that?"
+                rationale = "Classic feel-felt-found framework adapted for B2B operational dialogue."
 
-        elif stage == 6:  # Objection
-            if "existing_provider_or_team" in outcome or any(w in words for w in ["internal", "already have", "agency", "consultant"]):
-                suggestion = (
-                    "That makes complete sense—most established companies have strong internal capabilities. "
-                    "We don't replace internal teams; we provide an external benchmark on growth and operational bottlenecks. "
-                    "Would you be open to reviewing a short 2-page brief?"
-                )
-                alt = "Completely understand. We often collaborate with existing teams rather than replace them. May I share a one-page brief?"
-                rationale = "Reframes from competition to complementary benchmarking."
-            elif any(w in words for w in ["email", "mail", "whatsapp"]) or outcome == "requested_information":
-                suggestion = (
-                    f"I'll gladly share the executive summary on WhatsApp. "
-                    f"Could we schedule a 10-minute check-in next Tuesday afternoon after you've had a chance to glance through it?"
-                )
-                alt = "Sending it right away. What specific operational metrics would you like us to highlight in it?"
-                rationale = "Ties document delivery directly to a follow-up commitment."
-            elif any(w in words for w in ["not interested", "not for me", "no point"]) or outcome == "declined_not_interested":
-                suggestion = (
-                    "I appreciate your candor. If timing isn't right today, may I leave our contact details on WhatsApp "
-                    "in case your priorities shift next quarter?"
-                )
-                alt = "Understood, and thank you for being upfront. Would it be alright if we touch base in a few months?"
-                rationale = "Respects disinterest while leaving the door open politely without pressure."
-            else:
-                suggestion = (
-                    "I hear your hesitation. Many directors we speak with felt the same initially until seeing our operational breakdown. "
-                    "Would a brief 5-minute review with our founder be worth a look?"
-                )
-                alt = "Fair point. If we could show you how peer manufacturers solved that exact issue, would that be worth a 5-minute conversation?"
-                rationale = "Empathizes with concern and proposes low-friction review."
-
-        elif stage == 7:  # Next step
+        elif stage == 7:  # Next Step / Agreement
             if outcome == "agreed_to_receive_report":
                 suggestion = (
                     f"Perfect. I'll send the report to your WhatsApp right away. "

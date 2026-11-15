@@ -228,10 +228,15 @@ export function AiAssistant({
                   <span className="inline-flex items-center gap-1 rounded bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
                     <span>⚠</span> Transcript-based Fallback
                   </span>
+                ) : suggestionData.provider === "groq" ? (
+                  <span className="inline-flex items-center gap-1 rounded bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-800">
+                    <span className="h-1.5 w-1.5 rounded-full bg-blue-600"></span>
+                    Live Groq
+                  </span>
                 ) : (
                   <span className="inline-flex items-center gap-1 rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-600"></span>
-                    Live Gemini AI
+                    Live Gemini
                   </span>
                 )}
 
@@ -319,7 +324,7 @@ export function AiAssistant({
                 disabled={isLoading}
                 className="inline-flex items-center gap-1 font-semibold text-indigo-600 hover:text-indigo-800 cursor-pointer text-[11px]"
               >
-                {isLoading ? "Generating..." : suggestionData.is_fallback ? "↻ Retry with Gemini" : "↻ Regenerate"}
+                {isLoading ? "Generating..." : suggestionData.is_fallback ? "↻ Retry with AI" : "↻ Regenerate"}
               </button>
             </div>
           </div>

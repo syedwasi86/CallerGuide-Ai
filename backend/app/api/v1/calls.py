@@ -1,3 +1,5 @@
+import logging
+import time
 from typing import List, Optional
 from uuid import UUID
 
@@ -15,6 +17,8 @@ from app.schemas.call import (
 from app.schemas.ai import SuggestionRequest, SuggestionResponse
 from app.services.call_service import CallService, get_call_service
 from app.services.ai_service import AiService, get_ai_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/calls", tags=["Calls"])
 
@@ -83,7 +87,15 @@ async def generate_suggestion(
     Generates a spoken response suggestion based on stage, prospect words, and outcome.
     Applies strict guardrails for do-not-call requests and gracefully falls back on error or timeout.
     """
-    return await service.generate_suggestion(payload)
+    start_time = time.perf_counter()
+    resp = await service.generate_suggestion(payload)
+    total_elapsed = time.perf_counter() - start_time
+    logger.info(
+        f"Suggestion endpoint completed in {total_elapsed:.3f}s: "
+        f"provider={resp.provider}, is_fallback={resp.is_fallback}, "
+        f"stage={resp.stage_number}"
+    )
+    return resp
 
 
 @router.get(

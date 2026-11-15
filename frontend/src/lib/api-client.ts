@@ -52,9 +52,32 @@ export interface ProspectSummary {
 }
 
 export function getApiBaseUrl(): string {
-  if (typeof window !== "undefined" && process.env.NEXT_PUBLIC_API_BASE_URL) {
-    return process.env.NEXT_PUBLIC_API_BASE_URL.replace(/\/+$/, "");
+  // Support standard NEXT_PUBLIC_API_BASE_URL with optional NEXT_PUBLIC_API_URL alias
+  const rawUrl = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL;
+  const isProduction = process.env.NODE_ENV === "production";
+
+  if (rawUrl && typeof rawUrl === "string" && rawUrl.trim().length > 0) {
+    const trimmed = rawUrl.trim().replace(/\/+$/, "");
+    if (/^https?:\/\//i.test(trimmed)) {
+      return trimmed;
+    }
+    if (isProduction) {
+      throw new Error(
+        `Invalid NEXT_PUBLIC_API_BASE_URL configured for production: "${rawUrl}". URL must begin with http:// or https://.`
+      );
+    }
+    return trimmed;
   }
+
+  // In production, missing or empty API base URL must fail clearly and explicitly
+  if (isProduction) {
+    throw new Error(
+      "NEXT_PUBLIC_API_BASE_URL is not configured for production environment. " +
+      "Configure NEXT_PUBLIC_API_BASE_URL in your deployment environment variables (e.g., in Vercel project settings)."
+    );
+  }
+
+  // Development and local testing fallback
   return "http://localhost:8000";
 }
 

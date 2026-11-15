@@ -173,6 +173,58 @@ const detailCode = fs.readFileSync("src/app/calls/[id]/details/page.tsx", "utf-8
 assert(detailCode.includes("apiGetCall"), "Call detail page must use apiGetCall");
 console.log("  ✓ Call detail page wired to FastAPI backend");
 
+console.log("\nTest 8: Verification of getApiBaseUrl resolution, normalization, and environment safety...");
+assert(!apiClientCode.includes('typeof window !== "undefined" && process.env.NEXT_PUBLIC_API_BASE_URL'), "getApiBaseUrl must not condition env var access on typeof window");
+
+// Extract the getApiBaseUrl function body from src/lib/api-client.ts to test production behavior directly
+const fnMatch = apiClientCode.match(/export function getApiBaseUrl\(\): string \{([\s\S]*?\n\})/);
+assert(fnMatch, "getApiBaseUrl must be exported in api-client.ts");
+const rawBody = fnMatch[1].trim();
+const bodyWithoutTrailingBrace = rawBody.slice(0, rawBody.lastIndexOf("}"));
+const cleanBody = bodyWithoutTrailingBrace.replace(/:\s*string/g, "").replace(/:\s*boolean/g, "");
+const testGetApiBaseUrl = new Function("process", "window", cleanBody);
+
+// 1. Production with valid NEXT_PUBLIC_API_BASE_URL
+const prodValid = testGetApiBaseUrl({ env: { NODE_ENV: "production", NEXT_PUBLIC_API_BASE_URL: "https://callguide-backend.onrender.com" } });
+assert.strictEqual(prodValid, "https://callguide-backend.onrender.com", "Must resolve valid production API URL");
+console.log("  ✓ 1. Production with valid NEXT_PUBLIC_API_BASE_URL resolves correctly");
+
+// 2. Production with missing API URL (must fail fast rather than falling back to localhost)
+assert.throws(
+  () => testGetApiBaseUrl({ env: { NODE_ENV: "production" } }),
+  /NEXT_PUBLIC_API_BASE_URL is not configured for production/,
+  "Must throw explicit error in production when API base URL is missing"
+);
+console.log("  ✓ 2. Production with missing API URL fails clearly and explicitly");
+
+// 3. Development with missing API URL (local development fallback permitted)
+const devFallback = testGetApiBaseUrl({ env: { NODE_ENV: "development" } });
+assert.strictEqual(devFallback, "http://localhost:8000", "Must fall back to localhost:8000 only in non-production");
+console.log("  ✓ 3. Development with missing API URL falls back to http://localhost:8000");
+
+// 4. URL normalization and trailing slash removal
+const trailingSlashProd = testGetApiBaseUrl({ env: { NODE_ENV: "production", NEXT_PUBLIC_API_BASE_URL: "  https://callguide-backend.onrender.com/// " } });
+assert.strictEqual(trailingSlashProd, "https://callguide-backend.onrender.com", "Must trim whitespace and strip trailing slashes");
+
+assert.throws(
+  () => testGetApiBaseUrl({ env: { NODE_ENV: "production", NEXT_PUBLIC_API_BASE_URL: "ftp://invalid-protocol.com" } }),
+  /Invalid NEXT_PUBLIC_API_BASE_URL/,
+  "Must reject non-http/https URLs in production"
+);
+console.log("  ✓ 4. URL normalization, whitespace trimming, and trailing slash removal verified");
+
+// 5. Consistent behavior regardless of server-side (window undefined) or browser-side execution
+const serverExecution = testGetApiBaseUrl(
+  { env: { NODE_ENV: "production", NEXT_PUBLIC_API_BASE_URL: "https://callguide-backend.onrender.com" } },
+  undefined
+);
+const browserExecution = testGetApiBaseUrl(
+  { env: { NODE_ENV: "production", NEXT_PUBLIC_API_BASE_URL: "https://callguide-backend.onrender.com" } },
+  { document: {}, location: {} }
+);
+assert.strictEqual(serverExecution, browserExecution, "Server and browser resolution must produce identical output");
+console.log("  ✓ 5. Server-side and browser-side execution consistency verified");
+
 console.log("\n============================================================");
 console.log("🎉 All Phase 4 Frontend Integration checks PASSED (100%)!");
 console.log("============================================================\n");
