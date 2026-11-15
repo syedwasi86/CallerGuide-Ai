@@ -1,233 +1,311 @@
 # CallGuide AI — Cold-Call Companion (MVP)
 
-CallGuide AI is an AI-assisted cold-call companion designed for outbound B2B sales professionals. It keeps a structured 8-stage conversation methodology beside live phone calls, helps anticipate prospect objections and responses, captures verbatim prospect statements, and logs stage-by-stage results and canonical call outcomes to PostgreSQL.
+**CallGuide AI** is an AI-assisted cold-call companion designed for outbound B2B sales professionals. It keeps a structured eight-stage conversation methodology beside live phone calls, helps callers anticipate prospect objections and responses grounded in empirical cold-call transcripts, captures verbatim prospect statements, logs stage-by-stage results and canonical call outcomes to PostgreSQL, and provides low-latency LLM-assisted conversational guidance with intelligent rule-based fallbacks.
 
-> **Status:** Phase 4 (FastAPI Backend + Supabase Database Integration) complete. Database persistence, session recovery, and REST API synchronization are active. Phase 5 (LLM response generation) will follow.
-
----
-
-## 1. System Architecture
-
-```text
-┌─────────────────────────────────┐
-│   Next.js Frontend (React 19)   │
-│  - Active 8-Stage Call Runner   │
-│  - Call History & Metrics       │
-│  - Stage-by-Stage Audit Detail  │
-└────────────────┬────────────────┘
-                 │ REST / JSON (api-client.ts)
-                 ▼
-┌─────────────────────────────────┐
-│     FastAPI REST Backend        │
-│  - Call Lifecycle & Stage Upsert│
-│  - Monotonic Furthest Stage     │
-│  - Canonical Outcome Validation │
-└────────────────┬────────────────┘
-                 │ supabase-py (Service Role)
-                 ▼
-┌─────────────────────────────────┐
-│      Supabase PostgreSQL        │
-│  - calls table                  │
-│  - call_stage_results table     │
-│  - Unique (call_id, stage_num)  │
-└─────────────────────────────────┘
-```
-
-* **Frontend:** Next.js (App Router), TypeScript, Tailwind CSS v4, Webpack bundler.
-* **Backend:** Python 3.13, FastAPI, Pydantic v2, Uvicorn, Supabase Python Client (`supabase>=2.10.0`).
-* **Database:** Supabase PostgreSQL with relational tables (`calls`, `call_stage_results`), triggers, indexes, and RLS.
-* **Specification Source of Truth:** `doc/PRODUCT_SPEC.md` defines product requirements, 8-stage call flows, data models, and acceptance criteria.
+The single source of truth for all product requirements, conversational stages, data models, and acceptance criteria is [`doc/PRODUCT_SPEC.md`](doc/PRODUCT_SPEC.md).
 
 ---
 
-## 2. Directory Structure
+## 1. Main Product Capabilities
+
+1. **Eight-Stage Cold-Call Companion:** Guides callers in real time through an industry-tested cold-call sequence:
+   * **Stage 1 — Opening:** Reach the right decision-maker and introduce yourself.
+   * **Stage 2 — Purpose:** Explain the concise reason for the call without pitching prematurely.
+   * **Stage 3 — Permission:** Secure time or consent to speak.
+   * **Stage 4 — Their business:** Learn about company operations, existing vendors, or current setup.
+   * **Stage 5 — Their need, in their words:** Capture verbatim problem statements, goals, and challenges.
+   * **Stage 6 — Objection:** Address objections directly and pivot toward low-friction next steps.
+   * **Stage 7 — Next step:** Propose and confirm a concrete, low-friction follow-up action.
+   * **Stage 8 — Close:** Confirm agreed follow-up details and conclude courteously.
+2. **Prospect Creation & Selection:** Create a new prospect or select an existing contact with instant deduplication, contact auto-fill, and live search across prospect names, companies, and phone numbers.
+3. **Stage-Level Result Capture & Verbatim Notes:** Record selectable stage outcomes and exact prospect statements at every stage, preserved separately from caller interpretations.
+4. **Any-Stage Exit:** Calls can terminate gracefully at any point with one of the 10 canonical outcomes without forcing the full sequence.
+5. **Call History & Analytics Dashboard:** Filter calls by outcome or stage, search past conversations, review key metrics (total calls, completion rate, average duration, furthest stage distribution), and view stage-by-stage audit details.
+6. **Transcript-Grounded Guidance:** Stage guidance and prospect response examples are grounded in 100 authentic fictionalized B2B cold-call transcripts analyzed in [`doc/DATASET_ANALYSIS.md`](doc/DATASET_ANALYSIS.md).
+7. **Dual-Provider LLM Suggestions with Rule-Engine Fallback:** Contextual conversational suggestions powered by Google Gemini (`gemini-3.5-flash-lite`) or Groq (`openai/gpt-oss-20b`) via direct REST integration. Includes bounded transient retry, strict read timeouts, and immediate rule-engine fallback if the LLM is unconfigured, slow, or unavailable.
+8. **Ethical Guardrail:** When a prospect asks not to be called (`do_not_call`), the assistant strictly generates a respectful departure statement without objection handling or persuasion.
+
+---
+
+## 2. Technology Stack
+
+* **Frontend:**
+  * **Framework:** Next.js 16.4.6 (App Router, Webpack bundler)
+  * **UI Library:** React 19.3.0
+  * **Styling:** Tailwind CSS 4.3.3
+  * **Language:** TypeScript 5.9.3
+  * **Hosting Target:** Vercel
+* **Backend:**
+  * **Framework:** FastAPI 0.162.6
+  * **Server:** Uvicorn 0.38.0
+  * **Validation & Settings:** Pydantic 2.14.3 & Pydantic-Settings 2.16.3
+  * **HTTP Client:** HTTPX 0.28.1 (async client with connection pooling)
+  * **Database Client:** Supabase Python Client (`supabase>=2.10.0`)
+  * **Language:** Python 3.11+ (tested on Python 3.13)
+  * **Hosting Target:** Render
+* **Database:**
+  * **Engine:** Supabase PostgreSQL
+  * **Features:** Relational schema (`calls`, `call_stage_results`), Row Level Security (RLS), automated triggers for timestamping and bidirectional column synchronization, and 9 performance indexes.
+
+---
+
+## 3. Directory Structure
 
 ```text
 caller guide/
 ├── doc/
-│   └── PRODUCT_SPEC.md              # Source of truth specification
+│   ├── PRODUCT_SPEC.md              # Authoritative PRD & MVP specification
+│   └── DATASET_ANALYSIS.md          # 100-transcript empirical dataset analysis
+├── data/
+│   └── cold-call-transcripts-100/   # 100 fictionalized cold-call transcripts & metadata
+├── cold-call-transcripts-100/       # Secondary transcript root used by scripts & tests
 ├── frontend/
 │   ├── src/
 │   │   ├── app/
 │   │   │   ├── calls/
 │   │   │   │   ├── [id]/
-│   │   │   │   │   ├── details/page.tsx # Stage audit view
-│   │   │   │   │   └── page.tsx         # Active 8-stage call runner
+│   │   │   │   │   ├── details/page.tsx # Comprehensive stage audit detail view
+│   │   │   │   │   └── page.tsx         # Live 8-stage active cold-call runner
 │   │   │   │   └── page.tsx             # Call history & metrics dashboard
 │   │   │   ├── globals.css          # Tailwind CSS styles
-│   │   │   ├── layout.tsx           # Global shell & navigation
-│   │   │   └── page.tsx             # Landing page
-│   │   ├── data/
-│   │   │   └── stages.ts            # 8-stage reference data & prospect examples
+│   │   │   ├── layout.tsx           # Global shell & typography
+│   │   │   └── page.tsx             # Landing screen with Start Call dialog trigger
+│   │   ├── components/active-call/  # Modular call UI components (AiAssistant, Stepper, etc.)
+│   │   ├── config/stages.ts         # 8-stage definitions, guidance, and transcript quotes
 │   │   ├── lib/
-│   │   │   ├── api-client.ts        # REST client with backend mapping & fallbacks
+│   │   │   ├── api-client.ts        # Robust REST client with resilient base URL resolution
 │   │   │   └── call-storage.ts      # Active call references & demo data migration
-│   │   └── types/
-│   │       └── index.ts             # Domain types, stages, outcomes, sessions
-│   ├── .env.example                 # Frontend environment template
-│   ├── package.json                 # Next.js scripts & dependencies
-│   ├── test-phase2.mjs              # Phase 2 automated test suite
-│   ├── test-phase3.mjs              # Phase 3 automated test suite
-│   └── test-phase4.mjs              # Phase 4 automated test suite
+│   │   └── types/index.ts           # Shared TypeScript domain models and stage contracts
+│   ├── .env.example                 # Frontend environment variable template
+│   ├── package.json                 # Next.js scripts, dependencies, engines (Node >=20.9)
+│   ├── test-phase2.mjs              # Phase 2 Stage Engine automated test suite
+│   ├── test-phase3.mjs              # Phase 3 Call History & Storage automated test suite
+│   ├── test-phase4.mjs              # Phase 4 Backend Integration & API Client test suite
+│   ├── test-phase4-1.mjs            # Phase 4.1 Prospect Selection & Modal test suite
+│   └── test-phase5.mjs              # Phase 5 AI Suggestions & Dataset integrity test suite
 ├── backend/
 │   ├── app/
-│   │   ├── api/
-│   │   │   └── v1/
-│   │   │       └── calls.py         # REST endpoints for calls and stage results
-│   │   ├── core/
-│   │   │   └── config.py            # Pydantic Settings & Supabase validation
-│   │   ├── db/
-│   │   │   └── supabase.py          # Supabase client singleton
-│   │   ├── schemas/
-│   │   │   └── call.py              # Pydantic v2 request/response schemas
+│   │   ├── api/v1/calls.py          # REST endpoints for calls, stages, suggestions, prospects
+│   │   ├── core/config.py           # Pydantic BaseSettings, timeouts, CORS validator
+│   │   ├── db/supabase.py           # Supabase client singleton using service-role key
+│   │   ├── schemas/                 # Pydantic request/response schemas (call.py, ai.py)
 │   │   ├── services/
-│   │   │   └── call_service.py      # Business logic, monotonic stages, CRUD
-│   │   └── main.py                  # FastAPI app, CORS, /health route
-│   ├── supabase/
-│   │   └── migrations/
-│   │       └── 001_initial_schema.sql # Database schema, indexes, and triggers
+│   │   │   ├── ai_service.py        # AI suggestion orchestration, retries, rule fallback
+│   │   │   ├── call_service.py      # Call lifecycle, stage upserts, prospect deduplication
+│   │   │   └── providers/           # REST providers (gemini.py, groq.py, base.py)
+│   │   └── main.py                  # FastAPI application, CORS middleware, /health endpoint
+│   ├── scripts/                     # Dataset processing & extraction utilities
+│   ├── supabase/migrations/
+│   │   └── 001_initial_schema.sql   # Idempotent database schema, triggers, and RLS policies
 │   ├── tests/
-│   │   ├── test_calls.py            # Comprehensive backend CRUD unit tests
-│   │   └── test_health.py           # Health endpoint and DB connectivity tests
-│   ├── .env.example                 # Backend environment template
-│   └── requirements.txt             # FastAPI, uvicorn, pydantic, supabase, pytest
-├── README.md
-├── PHASE_2_COMPLETION_REPORT.md
-├── PHASE_3_COMPLETION_REPORT.md
-└── PHASE_4_COMPLETION_REPORT.md
+│   │   ├── test_ai.py               # AI suggestions, timeout, retry, fallback unit tests
+│   │   ├── test_calls.py            # Backend CRUD, stage upsert, prospect search tests
+│   │   └── test_health.py           # Service status and database connectivity tests
+│   ├── .env.example                 # Backend environment variable template
+│   ├── README.md                    # Backend architecture, setup & test guide
+│   └── requirements.txt             # Production Python dependencies
+├── DEPLOYMENT_READINESS_REPORT.md   # Comprehensive pre-deployment readiness audit
+└── README.md                        # Master repository documentation
 ```
 
 ---
 
-## 3. Database Schema & Supabase Setup
+## 4. Prerequisites
 
-### 3.1 Migration File
-The complete schema definition is located at:
-`backend/supabase/migrations/001_initial_schema.sql`
-
-It provisions:
-1. `calls` table: `id`, `prospect_name`, `company`, `phone_number`, `current_stage`, `furthest_stage_reached`, `status` (`in_progress`, `completed`), `final_outcome`, `notes`, `created_at`, `updated_at`, `closed_at`.
-2. `call_stage_results` table: `id`, `call_id` (FK cascade), `stage_number` (1-8), `stage_name`, `target_met` (boolean), `notes`, `transcript_snippet`, `created_at`, `updated_at`.
-3. Unique Constraint: `UNIQUE(call_id, stage_number)` ensuring idempotent stage upserts.
-4. Auto-update trigger: `set_updated_at()` updates `updated_at` timestamps on row mutation.
-5. Indexes: Optimized lookups by status, outcome, created timestamp, and stage number.
-6. Row-Level Security: Default RLS policies configured.
-
-### 3.2 Applying Migration to Supabase
-1. Create a project at [supabase.com](https://supabase.com).
-2. Open the **SQL Editor** in your Supabase dashboard.
-3. Paste the contents of `backend/supabase/migrations/001_initial_schema.sql` and run.
-4. Obtain your Project URL and `service_role` secret key from **Project Settings → API**.
+* **Node.js:** Node.js **>= 20.9.0** (Node.js **22.x LTS** recommended for Vercel deployment; Next.js 16 requires Node 20.9+).
+* **Package Manager:** `npm` (v10+ or v11+).
+* **Python:** Python **3.11+** (tested on Python 3.13.3; 64-bit).
+* **Database:** Free-tier or managed **Supabase** project (PostgreSQL 15+).
 
 ---
 
-## 4. Environment Configuration
+## 5. Local Development Setup
 
-### 4.1 Backend (`backend/.env`)
-Create `backend/.env` based on `backend/.env.example`:
-```ini
-APP_NAME="CallGuide AI API"
-ENVIRONMENT="development"
-DEBUG=true
+### 5.1 Clone & Setup Database
 
-# Supabase Credentials (keep service_role key strictly on the backend)
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key-here
+1. Create a Supabase project at [supabase.com](https://supabase.com).
+2. Open the **SQL Editor** in the Supabase Dashboard.
+3. Paste and run `backend/supabase/migrations/001_initial_schema.sql`.
+4. From **Project Settings -> API**, obtain:
+   * **Project URL** (`SUPABASE_URL`)
+   * **service_role secret key** (`SUPABASE_SERVICE_ROLE_KEY`)
 
-# CORS Configuration
-CORS_ORIGINS=["http://localhost:3000","http://127.0.0.1:3000"]
-```
+### 5.2 Backend Setup
 
-### 4.2 Frontend (`frontend/.env.local`)
-Create `frontend/.env.local` based on `frontend/.env.example`:
-```ini
-# FastAPI Backend REST Base URL
-NEXT_PUBLIC_API_URL=http://localhost:8000
-```
-
-> **Security Rule:** Never put the Supabase service-role key or database password in `frontend/.env.local` or any client-side bundle.
-
----
-
-## 5. API Reference
-
-All call endpoints are mounted under `/api/calls`:
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/calls` | Create a new call session (`prospect_name`, `company`, `phone_number`) |
-| `GET` | `/api/calls` | List calls with search (`search`), status filter (`status`), and pagination |
-| `GET` | `/api/calls/{id}` | Get call summary and current progress |
-| `GET` | `/api/calls/{id}/details`| Get call summary along with all 8 stage results sorted by stage number |
-| `PUT` | `/api/calls/{id}/stages/{stage_number}` | Upsert stage result; automatically updates `furthest_stage_reached` monotonically |
-| `POST` | `/api/calls/{id}/close` | Finalize call with one of the 10 canonical outcomes; prevents duplicate closure |
-| `GET` | `/health` | Health check returning service status, environment, and Supabase DB connection state |
-
-### 10 Canonical Final Outcomes
-Validated by backend schema and frontend types:
-* `meeting_booked`
-* `follow_up_scheduled`
-* `referral_obtained`
-* `gatekeeper_blocked`
-* `not_interested`
-* `bad_timing`
-* `no_budget`
-* `wrong_contact`
-* `competitor_lock_in`
-* `do_not_call`
-
----
-
-## 6. Running Locally
-
-### 6.1 Backend (FastAPI)
-```powershell
+```bash
+# Navigate to backend directory
 cd backend
-.\.venv\Scripts\Activate.ps1
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-```
-- API Docs: `http://127.0.0.1:8000/docs`
-- Health: `http://127.0.0.1:8000/health`
 
-### 6.2 Frontend (Next.js)
-```powershell
+# Create and activate Python virtual environment
+python -m venv .venv
+# On Windows:
+.venv\Scripts\activate
+# On macOS/Linux:
+source .venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Create local environment configuration
+cp .env.example .env
+```
+
+Edit `backend/.env` with your credentials:
+
+```dotenv
+PORT=8000
+ENVIRONMENT=development
+CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+FRONTEND_ORIGIN=http://localhost:3000
+
+# Supabase Credentials (keep service-role key backend-only)
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-secret-key
+
+# LLM Configuration (Gemini or Groq)
+LLM_PROVIDER=gemini
+LLM_API_KEY=your-gemini-api-key-from-google-ai-studio
+LLM_MODEL=gemini-3.5-flash-lite
+
+# Groq Configuration (Optional secondary provider)
+GROQ_API_KEY=your-groq-api-key-from-groq-console
+GROQ_MODEL=openai/gpt-oss-20b
+
+# Timeouts (in seconds)
+LLM_CONNECT_TIMEOUT_SECONDS=5.0
+LLM_READ_TIMEOUT_SECONDS=20.0
+LLM_WRITE_TIMEOUT_SECONDS=10.0
+LLM_POOL_TIMEOUT_SECONDS=5.0
+```
+
+Start the backend:
+
+```bash
+uvicorn app.main:app --reload --port 8000
+```
+
+Verify backend health at `http://localhost:8000/health`.
+
+### 5.3 Frontend Setup
+
+```bash
+# In a separate terminal, navigate to frontend directory
 cd frontend
+
+# Install dependencies
+npm install
+
+# Create local environment configuration
+cp .env.example .env.local
+```
+
+`frontend/.env.local` contains:
+
+```dotenv
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+```
+
+Start the frontend development server:
+
+```bash
 npm run dev
 ```
-- Web Application: `http://localhost:3000`
-- Call History: `http://localhost:3000/calls`
+
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
-## 7. Testing & Verification
+## 6. Testing & Build Commands
 
-### 7.1 Backend Automated Tests (Pytest)
-```powershell
-cd backend
-.\.venv\Scripts\python.exe -m pytest tests -v
-```
-Runs 15 automated tests covering:
-* `/health` and root endpoints.
-* Call lifecycle: Creation, listing, filtering, search.
-* Monotonic `furthest_stage_reached` progression (advancing and back-navigation).
-* Stage result upserts (create vs update with notes and snippets).
-* Close validation with canonical outcomes and duplicate closure prevention.
-* 404 and 422 error handling.
+### 6.1 Frontend Verification
 
-### 7.2 Frontend Automated Tests (Node / ES Modules)
-```powershell
-cd frontend
+From the `frontend/` directory:
+
+```bash
+# Run all 5 automated frontend test suites (Phase 2, 3, 4, 4.1, 5)
 npm test
-```
-Runs 3 test suites:
-* `test-phase2.mjs`: 8-stage active call runner, state transitions, prompt guides.
-* `test-phase3.mjs`: Call metrics, search, sorting, filtering, outcome badges.
-* `test-phase4.mjs`: REST API client mapping, error handling, localStorage migration, schema validation.
 
-### 7.3 Code Quality & Build Checks
-```powershell
-cd frontend
+# Run TypeScript typecheck (0 errors)
+npx tsc --noEmit
+
+# Run ESLint (0 errors)
 npm run lint
+
+# Run Next.js production build
 npm run build
 ```
-Production build uses Webpack (`--webpack`) for 100% deterministic compilation and static pre-rendering across all pages.
+
+### 6.2 Backend Verification
+
+From the `backend/` directory (with `.venv` activated):
+
+```bash
+# Run the complete pytest suite (34/34 tests passing)
+pytest -v
+```
+
+---
+
+## 7. LLM Integration & Fallback Handling
+
+CallGuide AI integrates Google Gemini and Groq without heavy external SDKs by using lightweight, asynchronous `httpx` connection-pooled REST requests:
+
+1. **Active Provider Selection:** Configured via `LLM_PROVIDER=gemini` or `LLM_PROVIDER=groq`.
+2. **Transient Error Retries:** Transient connection failures, socket timeouts, and HTTP 500/503 responses trigger up to **2 automated retries** with backoff.
+3. **No Retries on Hard Errors:** HTTP 401/403 authorization failures or LLM read timeouts fail immediately without retry to prevent latency accumulation during active sales calls.
+4. **Resilient JSON Parsing:** Handles raw JSON as well as markdown-wrapped JSON code blocks (` ```json ... ``` `).
+5. **Rule-Engine Fallback:** If the external LLM times out, fails, or has no API key configured, the application automatically invokes a rule engine grounded in the 100 empirical cold-call transcripts. The API response marks `is_fallback: true` and `provider: "fallback"`, and the UI indicates fallback status without disrupting the caller.
+6. **Ethical Guardrail:** If the prospect asks not to be called (`selected_outcome == "do_not_call"` or verbatim text signals a request to stop contact), the system short-circuits LLM generation and outputs an immediate respectful departure statement (`provider: "guardrail"`).
+
+---
+
+## 8. Deployment Guidance
+
+### 8.1 Backend on Render (Web Service)
+
+1. Connect your repository to [Render](https://render.com).
+2. Create a new **Web Service**:
+   * **Root Directory:** `backend`
+   * **Runtime:** `Python 3`
+   * **Build Command:** `pip install -r requirements.txt`
+   * **Start Command:** `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+3. Configure Environment Variables in Render Dashboard:
+   * `SUPABASE_URL`: Supabase project URL
+   * `SUPABASE_SERVICE_ROLE_KEY`: Supabase service-role secret key
+   * `FRONTEND_ORIGIN`: `https://your-app.vercel.app`
+   * `ENVIRONMENT`: `production`
+   * `LLM_PROVIDER`: `gemini` (or `groq`)
+   * `LLM_API_KEY`: Your Gemini API key
+   * `LLM_MODEL`: `gemini-3.5-flash-lite`
+4. Render monitors health at `/health`.
+
+### 8.2 Frontend on Vercel
+
+1. Import your repository into [Vercel](https://vercel.com).
+2. Set configuration:
+   * **Root Directory:** `frontend`
+   * **Framework Preset:** `Next.js`
+   * **Node.js Version:** `22.x` (or `20.x`)
+   * **Build Command:** `next build --webpack`
+3. Configure Environment Variable in Vercel Dashboard:
+   * `NEXT_PUBLIC_API_BASE_URL`: `https://your-backend-app.onrender.com`
+4. Deploy.
+
+---
+
+## 9. Security & Privacy Considerations
+
+* **Backend Secrets:** Gemini/Groq API keys and Supabase `service_role` secrets are strictly backend-only. They are never exposed to the browser or prefixed with `NEXT_PUBLIC_`.
+* **Row Level Security (RLS):** Supabase tables enforce RLS, allowing access only to the backend's authenticated `service_role`.
+* **CORS Restrictions:** FastAPI restricts allowed origins to the configured `FRONTEND_ORIGIN` and local development URLs.
+* **Content Safety:** Verbatim prospect input and AI suggestions are rendered with standard React JSX string escaping to prevent XSS.
+* **Fictionalized Dataset:** The 100 cold-call transcripts in `data/` are completely fictionalized. They must not be published or used to attempt identification of real individuals or companies.
+
+---
+
+## 10. Known Limitations
+
+* **Render Free-Tier Spin-Down:** Render free web services spin down after 15 minutes of inactivity. When spun down, the first request will take 30–50 seconds to complete. The frontend handles this by displaying a retry banner and a 15-second request timeout.
+* **Supabase Free-Tier Pausing:** Free Supabase projects pause after 7 days of inactivity. If paused, re-activate the project in the Supabase Dashboard.
+* **Browser Extension Warnings:** Browser extensions that inject DOM attributes into pages (such as `data-qb-installed="true"`) can produce harmless console hydration warnings. Testing in Incognito mode with extensions disabled verifies that no application hydration mismatch exists.
+# CallerGuide-Ai
